@@ -74,6 +74,22 @@ test('Playwright MCP gives a button added after load a ref and clicks it', { tim
   }
 });
 
+// 2026-11-02: after scrolling, geometry kept the pre-scroll position, so
+// browser_click on a button below the fold timed out ("outside of the viewport").
+test('Playwright MCP clicks a button below the fold', { timeout: 90_000 }, async () => {
+  const client = await connectMcp(['--executable-path', pilotBin, '--isolated', '--headless']);
+  try {
+    await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/below-fold.html` });
+    const snapshot = await callTool(client, 'browser_snapshot', {});
+    const ref = refFor(snapshot, 'button "Below the fold"');
+    assert.ok(ref, `the button below the fold has a ref:\n${snapshot}`);
+    await callTool(client, 'browser_click', { element: 'Below the fold', target: ref });
+    assert.match(await callTool(client, 'browser_snapshot', {}), /clicked below/);
+  } finally {
+    await client.close();
+  }
+});
+
 // pilot holds the profile's SingletonLock like Chromium, so MCP refuses a
 // second browser on it instead of starting one that fights over the profile.
 test('a second Playwright MCP on the same profile reports it in use', { timeout: 90_000 }, async () => {

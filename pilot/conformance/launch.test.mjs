@@ -39,6 +39,21 @@ test('a button added after the page loaded can be clicked', { timeout: 60_000 },
   }
 });
 
+// 2026-11-02: geometry kept the pre-scroll position after Playwright scrolled
+// the button into view, so it stayed "outside of the viewport" and the click
+// timed out.
+test('a button below the fold is scrolled into view and clicked', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/below-fold.html`);
+    await page.getByRole('button', { name: 'Below the fold' }).click({ timeout: 5_000 });
+    assert.equal(await page.locator('#out').textContent(), 'clicked below');
+  } finally {
+    await browser.close();
+  }
+});
+
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {
