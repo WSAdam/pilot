@@ -16,7 +16,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] pilot accepts --headless, --remote-debugging-port and --remote-debugging-address
 - [ ] pilot opens about:blank as the start page, or no page with --no-startup-window
 - [ ] pilot always runs with real layout on (Moli --layout)
-- [ ] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
+- [x] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
 - [ ] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
 - [ ] Target.attachedToTarget arrives before the createTarget reply, and the main frame id equals the targetId
 - [ ] Port mode prints "DevTools listening on ws://…" to stderr and writes DevToolsActivePort into the profile dir
