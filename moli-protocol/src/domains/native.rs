@@ -335,6 +335,7 @@ pub(crate) fn project_terminal_for_owner(
                         .is_some_and(|attachment| attachment.id() == terminal.attachment_id)
             })
     });
+    let wire_session_id = terminal.session.wire_session_id().map(str::to_owned);
     let response = &mut terminal.reply;
     let mut events = Vec::new();
     if owner.is_none() {
@@ -385,6 +386,27 @@ pub(crate) fn project_terminal_for_owner(
                 conn.with_target_devtools_session_state_for_owner_mut(owner, |state| {
                     state.web_mcp_enabled = enabled
                 });
+            }
+            // The session keeps the flag even if its document attachment was
+            // replaced meanwhile; only a still-current document is replayed.
+            (owner, moli_core::RendererNativeProtocolStateUpdate::PageLifecycleEvents(enabled)) => {
+                match super::page::apply_lifecycle_events_enabled(
+                    conn,
+                    wire_session_id.as_deref(),
+                    enabled,
+                ) {
+                    Some(replay) if owner.is_some() => {
+                        events.extend(replay.into_command_status_and_background_events().1);
+                    }
+                    Some(_) => {}
+                    None => {
+                        response.notifications.clear();
+                        response.result = Err(moli_core::RendererNativeProtocolError {
+                            code: -31998,
+                            message: "BrowserContextNotLoaded".to_owned(),
+                        });
+                    }
+                }
             }
             (
                 Some(owner),

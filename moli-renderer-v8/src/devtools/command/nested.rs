@@ -89,7 +89,8 @@ impl RendererPageCommand {
             | Self::SetNetworkOffline(..)
             | Self::SetBypassServiceWorker(..)
             | Self::SetBlockedUrlPatterns(..)
-            | Self::MsToNextTimeout => PageAgent,
+            | Self::MsToNextTimeout
+            | Self::OrderingBarrier => PageAgent,
 
             // These handlers enter V8, run script/lifecycle continuations, or
             // own work whose nested execution has no supported entry point.

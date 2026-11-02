@@ -450,17 +450,18 @@ async fn lifecycle_events_enable_without_renderer_binding_does_not_synthesize_re
         "params": { "enabled": true }
     })
     .to_string();
-    let CdpCommandTaskStep::Complete(outcome) =
-        ctx.with_fixture(|conn| conn.start_command_dispatch(&raw))
-    else {
-        panic!("Page.setLifecycleEventsEnabled should complete without renderer wait");
-    };
-    let (messages, scheduler_events) = outcome.into_parts();
+    // 2026-11-02: with a renderer attached, Page.setLifecycleEventsEnabled now
+    // completes behind a renderer ordering barrier (Chromium's per-session
+    // order; Playwright's persistent launch depends on it), so this drives the
+    // command to completion instead of requiring an immediate step. The
+    // contract under test is unchanged: no binding, no synthesized replay.
+    let step = ctx.with_fixture(|conn| conn.start_command_dispatch(&raw));
+    let (messages, scheduler_events) = ctx.complete_command_task_step_for_test(step).await;
     assert!(
         scheduler_events.is_empty(),
         "Page.setLifecycleEventsEnabled replay should not enqueue scheduler events: {scheduler_events:?}"
     );
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 1, "{messages:?}");
     assert_eq!(messages[0]["id"], json!(1213));
     assert_eq!(messages[0]["result"], json!({}));
 }

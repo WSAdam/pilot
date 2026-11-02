@@ -1184,6 +1184,7 @@ impl PageVm {
             RendererPageCommand::MsToNextTimeout => Ok(RendererPageReply::OptionalU64(
                 self.vm().ms_to_next_timeout(),
             )),
+            RendererPageCommand::OrderingBarrier => Ok(RendererPageReply::Unit),
             RendererPageCommand::RefreshFullPageState => Ok(RendererPageReply::Unit),
             RendererPageCommand::PageDiagnosticsSnapshot => {
                 Ok(RendererPageReply::PageDiagnosticsSnapshot(

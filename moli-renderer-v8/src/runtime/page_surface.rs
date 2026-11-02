@@ -5280,6 +5280,11 @@ pub enum RendererPageCommand {
     SetBypassServiceWorker(bool),
     SetBlockedUrlPatterns(Vec<String>),
     MsToNextTimeout,
+    /// Does nothing. Its reply follows every earlier command in the
+    /// renderer's ordered queue, so browser-side protocol state applied at
+    /// its terminal (Page.setLifecycleEventsEnabled's lifecycle replay)
+    /// keeps Chromium's per-session order behind earlier renderer replies.
+    OrderingBarrier,
     #[cfg(debug_assertions)]
     #[doc(hidden)]
     PanicForTesting,

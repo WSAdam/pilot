@@ -47,7 +47,8 @@ fn native_terminal_charge_bytes(terminal: &super::RendererNativeCommandTerminal)
                         .as_deref()
                         .map_or(0, string_charge),
                 ),
-            super::RendererNativeProtocolStateUpdate::WebMcpEnabled(_) => 0,
+            super::RendererNativeProtocolStateUpdate::WebMcpEnabled(_)
+            | super::RendererNativeProtocolStateUpdate::PageLifecycleEvents(_) => 0,
             super::RendererNativeProtocolStateUpdate::RemoteObjects { object_group } => {
                 object_group.as_deref().map_or(0, string_charge)
             }

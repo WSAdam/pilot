@@ -6,7 +6,8 @@ use super::*;
 use crate::domains::native::{self, NativeCommandStep};
 use moli_core::{
     RendererNativeOperation as Operation, RendererNativeProtocolResponse as Response,
-    RendererPageCommand as Command, RendererPageReply as Reply,
+    RendererNativeProtocolStateUpdate as Update, RendererPageCommand as Command,
+    RendererPageReply as Reply,
 };
 
 pub(crate) fn try_start(conn: &mut CdpConnection, cmd: &Cmd<'_>) -> Option<NativeCommandStep> {
@@ -160,6 +161,33 @@ fn prepare(
             Ok(Operation::new(
                 Command::SetBypassContentSecurityPolicy(enabled),
                 native::unit_response,
+            ))
+        }
+        // Chromium's Blink page agent runs this on the renderer main thread,
+        // in order with Page.getFrameTree. Clients such as Playwright drop
+        // lifecycle events for frames that reply has not described yet, so
+        // the flag and its replay are applied at a renderer barrier's ordered
+        // terminal (`native::project_terminal_for_owner`).
+        PageAction::SetLifecycleEventsEnabled => {
+            let params: LifecycleParams = cmd
+                .get_params()
+                .ok()
+                .flatten()
+                .ok_or_else(|| CommandOutputPlan::error(-32602, "InvalidParams"))?;
+            let enabled = params.enabled;
+            Ok(Operation::new(
+                Command::OrderingBarrier,
+                move |reply| match reply {
+                    Ok(Reply::Unit) => {
+                        let mut response = Response::success(json!({}));
+                        response
+                            .state_updates
+                            .push(Update::PageLifecycleEvents(enabled));
+                        response
+                    }
+                    Err(error) => Response::error(-32000, error.to_string()),
+                    _ => unreachable!("Page ordering barrier reply"),
+                },
             ))
         }
         PageAction::ResetNavigationHistory => Ok(Operation::new(

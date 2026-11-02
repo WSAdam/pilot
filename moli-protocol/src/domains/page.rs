@@ -665,11 +665,31 @@ fn set_lifecycle_events_enabled_command(
         Ok(Some(p)) => p,
         _ => return CommandOutputPlan::error(-32602, "InvalidParams"),
     };
+    match apply_lifecycle_events_enabled(conn, cmd.session_id, params.enabled) {
+        Some(mut plan) => {
+            plan.push_success();
+            plan
+        }
+        None => CommandOutputPlan::error(-31998, "BrowserContextNotLoaded"),
+    }
+}
+
+/// Applies `Page.setLifecycleEventsEnabled` for `session_id` and returns the
+/// lifecycle replay owed to the client, without the command reply, or `None`
+/// when the session has no browser context. With a renderer attached this
+/// runs at the ordered terminal of a renderer barrier (see `page::native`), so
+/// the replay follows any earlier renderer reply on the session, such as
+/// `Page.getFrameTree`, as in Chromium.
+pub(crate) fn apply_lifecycle_events_enabled(
+    conn: &mut CdpConnection,
+    session_id: Option<&str>,
+    enabled: bool,
+) -> Option<CommandOutputPlan> {
     let was_enabled = conn
-        .target_page_session_state_for_session(cmd.session_id)
+        .target_page_session_state_for_session(session_id)
         .is_some_and(|state| state.page_lifecycle_events);
     let mut plan = CommandOutputPlan::default();
-    match conn.set_page_lifecycle_events_enabled_for_session_owner(cmd.session_id, params.enabled) {
+    match conn.set_page_lifecycle_events_enabled_for_session_owner(session_id, enabled) {
         PageLifecycleEventsEnableResult::Handled {
             replay_target: Some(target),
         } => {
@@ -679,13 +699,13 @@ fn set_lifecycle_events_enabled_command(
             // that release. Do not expose its completed lifecycle as if it
             // belonged to the requested URL: clients commonly wait for the
             // first replayed `load` before reading the new frame tree.
-            let current_document_has_replacement_url = conn
-                .runtime_session_owner_initial_empty_document_has_replacement_url(cmd.session_id);
-            if params.enabled
+            let current_document_has_replacement_url =
+                conn.runtime_session_owner_initial_empty_document_has_replacement_url(session_id);
+            if enabled
                 && !was_enabled
                 && !current_document_has_replacement_url
                 && let Some((binding, snapshot)) =
-                    conn.renderer_document_lifecycle_visible_state_for_session_owner(cmd.session_id)
+                    conn.renderer_document_lifecycle_visible_state_for_session_owner(session_id)
             {
                 let milestones = [
                     (
@@ -710,15 +730,12 @@ fn set_lifecycle_events_enabled_command(
                     );
                 }
             }
-            plan.push_success();
-            plan
+            Some(plan)
         }
         PageLifecycleEventsEnableResult::Handled {
             replay_target: None,
-        } => CommandOutputPlan::success(),
-        PageLifecycleEventsEnableResult::UnknownSession => {
-            CommandOutputPlan::error(-31998, "BrowserContextNotLoaded")
-        }
+        } => Some(plan),
+        PageLifecycleEventsEnableResult::UnknownSession => None,
     }
 }
 

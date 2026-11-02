@@ -91,6 +91,9 @@ pub enum RendererNativeProtocolStateUpdate {
         output: Box<crate::runtime::RendererRuntimeCommandOutput>,
     },
     WebMcpEnabled(bool),
+    /// Page.setLifecycleEventsEnabled, applied (with its lifecycle replay) at
+    /// this ordered terminal rather than when the command arrived.
+    PageLifecycleEvents(bool),
     /// Register object IDs from the successful terminal result before delivery.
     /// The reply already owns the payload; this update only retains its group.
     RemoteObjects {

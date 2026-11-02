@@ -228,6 +228,7 @@ mod dialogs_and_target_lifecycle;
 mod frame_network_and_automation_events;
 mod navigation_and_load_progress;
 mod parser_replacement_and_debugger;
+mod playwright_launch_ordering;
 mod profiles_cache_and_interrupts;
 
 mod bar_prop_visibility;

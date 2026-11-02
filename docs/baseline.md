@@ -60,6 +60,18 @@ CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_DEV_DEBUG=0 cargo nextest run --no-fail
 
 The rest of the workspace (`moli-core`, `moli-renderer-v8`, and others) gets a baseline before the milestone that changes it, once there is enough disk space.
 
+### Wider run (2026-11-02, with the lifecycle-ordering patch)
+
+`cargo nextest run --no-fail-fast -p moli-protocol-cdp -p moli-protocol -p moli-protocol-server -p moli-renderer-v8 -p moli -p pilot`: **14,957 of 14,960 pass**, with 9 skipped. The three failures all depend on the macOS environment:
+
+| Test | Why it fails here |
+|---|---|
+| `moli::fetch_cli cli_connection_failure_reports_curl_code_and_cause` | Linux socket semantics (see above) |
+| `moli-protocol emulation::tests::context_locale_override_applies_to_loaded_background_page_without_activation` | Assumes UTC. It fails in this machine's US Eastern timezone ("01/01/2020" instead of "02/01/2020") and **passes with `TZ=UTC`**, which upstream's Linux CI uses |
+| `moli-renderer-v8 fonts::unicode_ranges::font_face_unicode_range_limits_layout_and_updates_after_loading` | Fails 3 of 3 at its first assertion, that the test font measures differently from the system `monospace` fallback. That depends on macOS's fallback font; the test sends no protocol commands |
+
+Run the suites with `TZ=UTC` to match upstream CI.
+
 ## Benchmark (`bench/`, Moli only)
 
 Command: `node bench/bench.mjs --bin target/release/moli --runs 10 --contexts 25 --label moli-baseline`. Full results are in [bench/results/2026-11-02-moli-baseline.json](../bench/results/2026-11-02-moli-baseline.json).

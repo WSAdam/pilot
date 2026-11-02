@@ -66,7 +66,9 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] On macOS a file picked through the file chooser reports size 8 instead of 15 (moli-cdp-smoke dom-input group fails 3/3)
 - [ ] On macOS moli::fetch_cli cli_connection_failure_reports_curl_code_and_cause fails: connecting to a bound non-listening port times out (curl 28) instead of being refused (curl 7)
 - [x] Browser.close sent with a negative command id (Playwright's -9999) is rejected as an invalid request, so a browser Playwright launched never exits
-- [ ] Playwright launchPersistentContext with pilot hangs: Page.setLifecycleEventsEnabled replays load before the earlier Page.getFrameTree replies, so Playwright drops the event
+- [x] Playwright launchPersistentContext with pilot hangs: Page.setLifecycleEventsEnabled replays load before the earlier Page.getFrameTree replies, so Playwright drops the event
+- [ ] On macOS (US Eastern time) moli-protocol emulation test context_locale_override_applies_to_loaded_background_page_without_activation fails; it passes with TZ=UTC
+- [ ] On macOS moli-renderer-v8 test font_face_unicode_range_limits_layout_and_updates_after_loading fails: the test font measures the same as the system monospace fallback
 
 ## M0 additions
 - [x] Scoped Rust baseline (nextest for moli and moli-protocol-server) and the moli-cdp-smoke result recorded in docs/baseline.md
