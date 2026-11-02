@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - heading "Conformance" [level=1] [ref=e2]
+  - text: Name
+  - textbox "Name" [ref=e3]
+  - button "Greet" [ref=e4]
+  - paragraph [ref=e5]: not clicked

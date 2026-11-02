@@ -17,13 +17,13 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] pilot opens about:blank as the start page, or no page with --no-startup-window
 - [x] pilot always runs with real layout on (Moli --layout)
 - [x] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
-- [ ] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
-- [ ] Target.attachedToTarget arrives before the createTarget reply, and the main frame id equals the targetId
+- [x] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
+- [x] Target.attachedToTarget arrives before the createTarget reply, and the main frame id equals the targetId
 - [ ] Port mode prints "DevTools listening on ws://…" to stderr and writes DevToolsActivePort into the profile dir
 - [ ] Browser.getVersion userAgent contains HeadlessChrome when pilot runs headless
-- [ ] Playwright chromium.launch({executablePath: pilot}) runs newPage, goto, evaluate, close and the pilot process exits (moli-cdp-smoke pilot_launch group)
-- [ ] Playwright launchPersistentContext(userDataDir) works with pilot (moli-cdp-smoke pilot_launch group)
-- [ ] Playwright MCP drives pilot in default, --isolated and --cdp-endpoint modes: navigate, snapshot, click, type, screenshot (pilot_mcp group)
+- [x] Playwright chromium.launch({executablePath: pilot}) runs newPage, goto, evaluate, close and the pilot process exits (moli-cdp-smoke pilot_launch group)
+- [x] Playwright launchPersistentContext(userDataDir) works with pilot (moli-cdp-smoke pilot_launch group)
+- [x] Playwright MCP drives pilot in default, --isolated and --cdp-endpoint modes: navigate, snapshot, click, type, screenshot (pilot_mcp group)
 
 ## M2: Live geometry
 - [ ] A node inserted after the first geometry read gets a real box, so Playwright check/hover/selectOption succeed (#1080 #1289 #2069 fixtures, pilot-core live-layout patch)
@@ -69,6 +69,10 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Playwright launchPersistentContext with pilot hangs: Page.setLifecycleEventsEnabled replays load before the earlier Page.getFrameTree replies, so Playwright drops the event
 - [ ] On macOS (US Eastern time) moli-protocol emulation test context_locale_override_applies_to_loaded_background_page_without_activation fails; it passes with TZ=UTC
 - [ ] On macOS moli-renderer-v8 test font_face_unicode_range_limits_layout_and_updates_after_loading fails: the test font measures the same as the system monospace fallback
+
+## M1 additions
+- [x] Playwright launch/persistent and MCP tests live in pilot/conformance (node --test), not moli-cdp-smoke groups; see DECISIONS.md
+- [ ] Claude Code drives pilot through Playwright MCP (claude mcp add with --executable-path), headless and headed (needs live run)
 
 ## M0 additions
 - [x] Scoped Rust baseline (nextest for moli and moli-protocol-server) and the moli-cdp-smoke result recorded in docs/baseline.md

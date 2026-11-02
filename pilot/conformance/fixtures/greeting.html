@@ -1,0 +1,11 @@
+<!doctype html>
+<html>
+<head><title>pilot conformance</title></head>
+<body>
+  <h1>Conformance</h1>
+  <label for="name">Name</label>
+  <input id="name" type="text">
+  <button id="greet" onclick="document.getElementById('out').textContent = 'Hello, ' + (document.getElementById('name').value || 'nobody'); document.title = 'greeted'">Greet</button>
+  <p id="out">not clicked</p>
+</body>
+</html>

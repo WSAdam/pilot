@@ -1,0 +1,14 @@
+{
+  "name": "pilot-conformance",
+  "private": true,
+  "type": "module",
+  "description": "Launches pilot exactly as Playwright and Playwright MCP launch Chromium, and drives it end to end",
+  "scripts": {
+    "test": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@playwright/mcp": "0.0.84",
+    "playwright-core": "1.65.0-alpha-2026-10-30"
+  }
+}
