@@ -12,14 +12,14 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 
 ## M1: Launchable by Playwright (pilot binary crate)
 - [x] pilot runs without a subcommand and ignores unknown Chromium switches (pilot/src/argv.rs)
-- [ ] pilot maps --user-data-dir to the Moli profile dir and writes a SingletonLock symlink there
+- [x] pilot maps --user-data-dir to the Moli profile dir and writes a SingletonLock symlink there
 - [x] pilot accepts --headless, --remote-debugging-port and --remote-debugging-address
 - [ ] pilot opens about:blank as the start page, or no page with --no-startup-window
 - [x] pilot always runs with real layout on (Moli --layout)
 - [x] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
 - [x] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
 - [x] Target.attachedToTarget arrives before the createTarget reply, and the main frame id equals the targetId
-- [ ] Port mode prints "DevTools listening on ws://…" to stderr and writes DevToolsActivePort into the profile dir
+- [x] Port mode prints "DevTools listening on ws://…" to stderr and writes DevToolsActivePort into the profile dir
 - [ ] Browser.getVersion userAgent contains HeadlessChrome when pilot runs headless
 - [x] Playwright chromium.launch({executablePath: pilot}) runs newPage, goto, evaluate, close and the pilot process exits (moli-cdp-smoke pilot_launch group)
 - [x] Playwright launchPersistentContext(userDataDir) works with pilot (moli-cdp-smoke pilot_launch group)
@@ -73,6 +73,8 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 ## M1 additions
 - [x] Playwright launch/persistent and MCP tests live in pilot/conformance (node --test), not moli-cdp-smoke groups; see DECISIONS.md
 - [ ] Claude Code drives pilot through Playwright MCP (claude mcp add with --executable-path), headless and headed (needs live run)
+- [x] Decided: pilot keeps its normal Chrome user agent when headless (DECISIONS.md), so the HeadlessChrome item above stays intentionally undone
+- [x] A second Playwright MCP on a profile pilot already holds reports "Browser is already in use" (SingletonLock, exit code 21)
 
 ## M0 additions
 - [x] Scoped Rust baseline (nextest for moli and moli-protocol-server) and the moli-cdp-smoke result recorded in docs/baseline.md

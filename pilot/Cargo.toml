@@ -14,8 +14,14 @@ path = "src/main.rs"
 anyhow = "1.0.100"
 clap = { version = "4.5.39", features = ["derive", "env"] }
 moli = { path = "../moli" }
+moli-core = { path = "../moli-core" }
 moli-process-signal = { path = "../moli-process-signal" }
+moli-protocol-server = { path = "../moli-protocol-server" }
 tokio = { version = "1.51.0", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
+tracing = "0.1.41"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 libc = "0.2"

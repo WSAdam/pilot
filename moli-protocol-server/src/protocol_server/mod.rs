@@ -146,6 +146,18 @@ impl ProtocolServer {
     /// Serve one instance with a protocol-independent lifecycle control handle.
     /// Use a fresh handle for each instance; shutdown requests are persistent.
     pub async fn serve_with_control(&self, control: BrowserInstanceControl) -> Result<()> {
+        self.serve_with_control_and_bound_hook(control, |_| {})
+            .await
+    }
+
+    /// Like [`Self::serve_with_control`], but reports the bound address
+    /// before serving, so a launcher can announce a port-0 endpoint the way
+    /// Chromium does (`DevTools listening on ...`).
+    pub async fn serve_with_control_and_bound_hook(
+        &self,
+        control: BrowserInstanceControl,
+        on_bound: impl FnOnce(std::net::SocketAddr),
+    ) -> Result<()> {
         let listener = TcpListener::bind(self.config.bind_target())
             .await
             .with_context(|| {
@@ -160,6 +172,7 @@ impl ProtocolServer {
             .context("failed to read bound protocol socket address")?;
 
         info!(%addr, "protocol server listening");
+        on_bound(addr);
 
         let app_state = AppState::new_with_storage_partition_and_runtime_config(
             addr,

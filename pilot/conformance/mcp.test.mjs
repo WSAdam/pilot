@@ -44,6 +44,38 @@ const modes = {
   },
 };
 
+async function connectMcp(args) {
+  const outputDir = await freshProfileDir('mcp-output');
+  const client = new Client({ name: 'pilot-conformance', version: '0.1.0' });
+  await client.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [mcpCli, '--output-dir', outputDir, ...args],
+    stderr: 'inherit',
+  }));
+  return client;
+}
+
+// pilot holds the profile's SingletonLock like Chromium, so MCP refuses a
+// second browser on it instead of starting one that fights over the profile.
+test('a second Playwright MCP on the same profile reports it in use', { timeout: 90_000 }, async () => {
+  const profile = await freshProfileDir('mcp-shared');
+  const first = await connectMcp(['--executable-path', pilotBin, '--headless', '--user-data-dir', profile]);
+  const second = await connectMcp(['--executable-path', pilotBin, '--headless', '--user-data-dir', profile]);
+  try {
+    await callTool(first, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });
+    const refused = await second.callTool({
+      name: 'browser_navigate',
+      arguments: { url: `${fixture.baseUrl}/greeting.html` },
+    });
+    assert.ok(refused.isError, 'the second browser must not start on a profile in use');
+    assert.match(toolText(refused), /already in use/);
+  } finally {
+    await callTool(first, 'browser_close', {}).catch(() => {});
+    await first.close();
+    await second.close();
+  }
+});
+
 for (const [mode, setUp] of Object.entries(modes)) {
   test(`Playwright MCP drives pilot in ${mode} mode`, { timeout: 90_000 }, async () => {
     const { args, stop } = await setUp();

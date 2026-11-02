@@ -47,6 +47,11 @@ The fork started from upstream main as of 2026-11-02 (51d6d1ee3, 113 commits pas
 Why: resetting the fork's main to v1.1.20 required a force-push, which was declined.
 Date: 2026-11-02
 
+## pilot keeps its normal Chrome user agent when headless
+pilot does not report `HeadlessChrome` in `Browser.getVersion` or anywhere else, even with `--headless`.
+Why: many sites block the HeadlessChrome user agent, which matters for an agent's browser. Playwright only uses it to decide whether to send `Page.setFontFamilies`. Filed as a Shepherd question with this as the default.
+Date: 2026-11-02
+
 ## Playwright and MCP launch tests are a Node package (pilot/conformance), not moli-cdp-smoke groups
 `pilot/conformance` runs `node --test` with pinned playwright-core 1.65 and @playwright/mcp 0.0.84. It launches pilot by executable path in every Playwright and MCP launch mode and drives it end to end.
 Why: Playwright MCP is a Node program that spawns the browser itself. moli-cdp-smoke is built around a managed `moli serve` endpoint, strict full-suite rules and a Chromium oracle for every group, and none of that fits "launch this executable as Chromium".

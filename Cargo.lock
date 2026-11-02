@@ -4548,9 +4548,12 @@ dependencies = [
  "clap",
  "libc",
  "moli",
+ "moli-core",
  "moli-process-signal",
+ "moli-protocol-server",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

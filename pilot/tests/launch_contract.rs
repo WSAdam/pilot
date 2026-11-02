@@ -140,13 +140,22 @@ fn fresh_profile_dir(fixture: &str) -> PathBuf {
     dir
 }
 
-fn spawn_like_playwright(fixture: &str, argv: &str) -> PipedPilot {
-    let profile = fresh_profile_dir(fixture);
-    let args: Vec<String> = argv
-        .lines()
+fn playwright_args(argv: &str, profile: &std::path::Path) -> Vec<String> {
+    argv.lines()
         .filter(|line| !line.is_empty())
         .map(|line| line.replace("{USER_DATA_DIR}", &profile.to_string_lossy()))
-        .collect();
+        .collect()
+}
+
+fn singleton_lock_target(profile: &std::path::Path) -> Option<String> {
+    std::fs::read_link(profile.join("SingletonLock"))
+        .ok()
+        .map(|target| target.to_string_lossy().into_owned())
+}
+
+fn spawn_like_playwright(fixture: &str, argv: &str) -> PipedPilot {
+    let profile = fresh_profile_dir(fixture);
+    let args = playwright_args(argv, &profile);
     let (child_input, parent_commands) = pipe();
     let (parent_replies, child_output) = pipe();
     let input_fd = child_input.as_raw_fd();
@@ -213,11 +222,53 @@ fn pilot_accepts_every_playwright_launch_command_line_and_closes_like_chromium()
             "{fixture}: Browser.getVersion product must be name/version, got {reply}"
         );
 
+        // Playwright MCP reads this to tell whether the profile is in use.
+        let lock = singleton_lock_target(&pilot.profile)
+            .unwrap_or_else(|| panic!("{fixture}: SingletonLock is held while pilot runs"));
+        assert!(
+            lock.ends_with(&format!("-{}", pilot.child.id())),
+            "{fixture}: SingletonLock must name pilot's pid after the last '-': {lock}"
+        );
+
         pilot.send(json!({ "id": PLAYWRIGHT_BROWSER_CLOSE_ID, "method": "Browser.close" }));
         let status = pilot.wait_for_exit(fixture);
         assert!(
             status.success(),
             "{fixture}: Browser.close must exit cleanly, got {status}"
         );
+        assert_eq!(
+            singleton_lock_target(&pilot.profile),
+            None,
+            "{fixture}: a clean exit releases SingletonLock"
+        );
     }
+}
+
+#[test]
+fn a_second_pilot_on_a_profile_in_use_fails_like_chromium() {
+    let (fixture, argv) = FIXTURES[4];
+    let mut first = spawn_like_playwright(fixture, argv);
+    first.send(json!({ "id": 1, "method": "Browser.getVersion" }));
+    first.reply_to(1, fixture);
+
+    let second = Command::new(env!("CARGO_BIN_EXE_pilot"))
+        .args(playwright_args(argv, &first.profile))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("second pilot runs");
+    let stderr = String::from_utf8_lossy(&second.stderr);
+    assert_eq!(
+        second.status.code(),
+        Some(21),
+        "Chromium exits 21 when the profile is in use; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Failed to create a ProcessSingleton"),
+        "Playwright recognises Chromium's ProcessSingleton message: {stderr}"
+    );
+
+    first.send(json!({ "id": PLAYWRIGHT_BROWSER_CLOSE_ID, "method": "Browser.close" }));
+    assert!(first.wait_for_exit(fixture).success());
 }
