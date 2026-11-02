@@ -2405,4 +2405,5 @@ mod xml_serializer_receivers;
 mod hyperlink_audit_owner;
 
 mod fetch_referrer;
+mod live_geometry_after_mutation;
 mod sqlite_web_storage;

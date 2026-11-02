@@ -286,12 +286,15 @@ impl JsContextHost {
             return Err(LayoutError::ReentrantLayoutPass);
         }
         let document = self.document_handle();
-        if self
-            .document_layout_state
-            .borrow()
-            .latest_layout(document)
-            .is_some()
-        {
+        let latest_is_usable = {
+            let state = self.document_layout_state.borrow();
+            if self.layout_policy.rebuilds_stale_layout() {
+                state.latest_layout_is_current(document, self.dom_host().dom_version())
+            } else {
+                state.latest_layout(document).is_some()
+            }
+        };
+        if latest_is_usable {
             return Ok(());
         }
         let request = LayoutPassRequest::new(
@@ -455,7 +458,7 @@ impl JsContextHost {
         let frame_viewports_changed = {
             let mut state = self.document_layout_state.borrow_mut();
             state.retain_live_frame_viewports(|frame| self.child_browsing_context_is_live(frame));
-            state.publish_latest_layout(document, tree);
+            state.publish_latest_layout(document, self.dom_host().dom_version(), tree);
             state.update_frame_viewports(frame_viewports)
         };
         if frame_viewports_changed {

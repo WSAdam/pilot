@@ -56,3 +56,8 @@ Date: 2026-11-02
 `pilot/conformance` runs `node --test` with pinned playwright-core 1.65 and @playwright/mcp 0.0.84. It launches pilot by executable path in every Playwright and MCP launch mode and drives it end to end.
 Why: Playwright MCP is a Node program that spawns the browser itself. moli-cdp-smoke is built around a managed `moli serve` endpoint, strict full-suite rules and a Chromium oracle for every group, and none of that fits "launch this executable as Chromium".
 Date: 2026-11-02
+
+## pilot runs Moli's layout under a new `Live` policy; upstream's `OnDemand` stays frozen
+Under `LayoutPolicy::Live`, a geometry read or input event after any DOM change (including hover and focus state) rebuilds the page layout, as Chromium does. `moli serve --layout` still uses `OnDemand`, which keeps upstream's frozen snapshot until a screenshot or paint.
+Why: upstream deliberately freezes geometry until the next paint, and 21 upstream tests assert it. Upstream's own fix (PR #2084) changes `OnDemand` and fails those tests. An opt-in policy gives Playwright live geometry while leaving every upstream test and file it guards unchanged, so upstream merges stay clean. Cost: a click can re-lay out once per mouse event, measured in bench/ and owned by M5.
+Date: 2026-11-02

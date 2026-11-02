@@ -10,11 +10,20 @@ pub enum LayoutPolicy {
     /// Screenshots and screencasts publish layout; print projections are temporary.
     /// Geometry queries and input read the last published layout, if any.
     OnDemand,
+    /// pilot: `OnDemand`, except that a geometry query or input event after a
+    /// DOM change rebuilds the latest layout instead of reading the frozen one,
+    /// as Chromium does. Playwright needs this to act on nodes added later.
+    Live,
 }
 
 impl LayoutPolicy {
     pub const fn uses_real_layout(self) -> bool {
-        matches!(self, Self::OnDemand)
+        matches!(self, Self::OnDemand | Self::Live)
+    }
+
+    /// Whether a latest layout built before the current DOM version is stale.
+    pub const fn rebuilds_stale_layout(self) -> bool {
+        matches!(self, Self::Live)
     }
 }
 
@@ -41,5 +50,13 @@ mod tests {
         assert!(!LayoutPolicy::default().uses_real_layout());
         assert!(LayoutPolicy::OnDemand.uses_real_layout());
         assert!(!LayoutPolicy::Mock.uses_real_layout());
+    }
+
+    #[test]
+    fn only_the_live_policy_rebuilds_a_stale_layout() {
+        assert!(LayoutPolicy::Live.uses_real_layout());
+        assert!(LayoutPolicy::Live.rebuilds_stale_layout());
+        assert!(!LayoutPolicy::OnDemand.rebuilds_stale_layout());
+        assert!(!LayoutPolicy::Mock.rebuilds_stale_layout());
     }
 }
