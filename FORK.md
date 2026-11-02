@@ -32,4 +32,4 @@ Each patch is one commit whose subject starts with `pilot-core:`.
 
 | Patch | Upstream files touched | Guarding test | Upstream equivalent |
 |---|---|---|---|
-| _(none yet)_ | | | |
+| Accept negative CDP command ids, as Chromium does (Playwright closes a launched browser with `Browser.close` id −9999), and echo them back signed | `moli-protocol-cdp/src/{wire,lib}.rs`, `moli-protocol-server/src/cdp_frontend_router/{routing,routing/output}.rs` | `wire::tests::negative_command_ids_are_valid_like_chromium`, `routing::tests::negative_client_command_ids_are_accepted_and_restored_on_every_reply` | none |

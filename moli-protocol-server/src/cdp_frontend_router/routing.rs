@@ -109,7 +109,7 @@ fn set_top_level_session_id(message: &mut Value, session_id: Option<&str>) {
 
 fn cdp_error_response(id: Option<u64>, code: i32, message: &str) -> Value {
     json!({
-        "id": id.map(Value::from).unwrap_or(Value::Null),
+        "id": id.map(moli_protocol_cdp::client_command_id_value).unwrap_or(Value::Null),
         "error": {
             "code": code,
             "message": message,

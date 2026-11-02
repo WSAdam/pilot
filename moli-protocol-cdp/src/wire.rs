@@ -1,6 +1,41 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
+
+/// Chromium accepts any integer command id, and Playwright closes a browser it
+/// launched with id -9999. Command ids are carried as `u64`; a negative id keeps
+/// its two's-complement bit pattern, and [`client_command_id_value`] restores
+/// the signed form wherever the id is echoed back to the client.
+fn command_id_from_value(id: &Value) -> Option<u64> {
+    id.as_u64().or_else(|| id.as_i64().map(i64::cast_unsigned))
+}
+
+/// JSON form of a client command id in a reply: an id the client sent as a
+/// negative number is echoed back negative.
+pub fn client_command_id_value(id: u64) -> Value {
+    let signed = id.cast_signed();
+    if signed < 0 {
+        Value::from(signed)
+    } else {
+        Value::from(id)
+    }
+}
+
+fn deserialize_command_id<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let id = Value::deserialize(deserializer)?;
+    command_id_from_value(&id)
+        .ok_or_else(|| serde::de::Error::custom("command id must be an integer"))
+}
+
+fn serialize_command_id<S>(id: &u64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    client_command_id_value(*id).serialize(serializer)
+}
 
 /// CDP response class for a command that could not enter the typed wire
 /// envelope.
@@ -41,7 +76,7 @@ impl CdpCommandParseError {
                 .as_ref()
                 .and_then(Value::as_object)
                 .and_then(|message| message.get("id"))
-                .and_then(Value::as_u64)
+                .and_then(command_id_from_value)
         } else {
             None
         };
@@ -113,6 +148,7 @@ impl Error for CdpCommandParseError {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(try_from = "IncomingCdpRequest")]
 pub struct CdpRequest {
+    #[serde(serialize_with = "serialize_command_id")]
     id: u64,
     method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -125,6 +161,7 @@ pub struct CdpRequest {
 
 #[derive(Deserialize)]
 struct IncomingCdpRequest {
+    #[serde(deserialize_with = "deserialize_command_id")]
     id: u64,
     method: String,
     #[serde(default)]
@@ -342,7 +379,7 @@ impl ParsedCdpCommand {
         let command_id = value
             .as_object()
             .and_then(|message| message.get("id"))
-            .and_then(Value::as_u64);
+            .and_then(command_id_from_value);
         let request: CdpRequest = serde_json::from_value(value)
             .map_err(|source| CdpCommandParseError::from_value(command_id, source))?;
         let json = serde_json::to_string(&request)
@@ -711,6 +748,22 @@ mod tests {
 
     fn parse(raw: impl Into<String>) -> ParsedCdpCommand {
         ParsedCdpCommand::parse_str(raw).expect("test command must be valid CDP JSON")
+    }
+
+    // 2026-11-02: Playwright closes a browser it launched with Browser.close
+    // id -9999. Ids were parsed as u64, so the command was rejected as an
+    // invalid request and the browser never exited.
+    #[test]
+    fn negative_command_ids_are_valid_like_chromium() {
+        let command = parse(r#"{"id":-9999,"method":"Browser.close"}"#);
+        assert_eq!(command.method(), "Browser.close");
+
+        let command = ParsedCdpCommand::parse_value(serde_json::json!({
+            "id": -3,
+            "method": "Page.enable",
+        }))
+        .expect("an in-process command with a negative id is valid");
+        assert_eq!(command.method(), "Page.enable");
     }
 
     #[test]

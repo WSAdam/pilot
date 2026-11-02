@@ -76,6 +76,51 @@ fn instance_command_responses_use_normal_command_and_session_routes_once() {
     }
 }
 
+// 2026-11-02: Playwright closes a browser it launched with Browser.close id
+// -9999. Negative client ids were rejected at parse time, so the browser never
+// exited; every reply must echo the client's signed id unchanged.
+#[test]
+fn negative_client_command_ids_are_accepted_and_restored_on_every_reply() {
+    let router = CdpFrontendRouter::new();
+    let (sink, mut writer) = CdpSocketSink::with_stalled_writer_for_test(4);
+    router
+        .register_browser_frontend(5, "SID-browser".into(), sink)
+        .unwrap();
+
+    let command = expect_prepared_command(
+        router.prepare_command(
+            5,
+            ParsedCdpCommand::parse_str(r#"{"id":-9999,"method":"Browser.close"}"#),
+        ),
+        "Playwright browser close",
+    );
+    assert_eq!(command.method(), "Browser.close");
+    let response = json!({"id": command.request().id(), "result": {}});
+    assert!(router.enqueue_response(response).is_some());
+    assert_eq!(writer.take_message(), json!({"id": -9999, "result": {}}));
+
+    let unknown_session = router.prepare_command(
+        5,
+        ParsedCdpCommand::parse_str(
+            r#"{"id":-7,"method":"Page.enable","sessionId":"SID-missing"}"#,
+        ),
+    );
+    let Some(CdpPreparedFrontendCommand::ImmediateResponse { message, .. }) = unknown_session
+    else {
+        panic!("an unknown session must produce an immediate error response");
+    };
+    assert_eq!(message["id"], json!(-7));
+
+    let invalid_params = router.prepare_command(
+        5,
+        ParsedCdpCommand::parse_str(r#"{"id":-5,"method":"Page.navigate","params":[]}"#),
+    );
+    let Some(CdpPreparedFrontendCommand::ImmediateResponse { message, .. }) = invalid_params else {
+        panic!("an invalid request must produce an immediate error response");
+    };
+    assert_eq!(message["id"], json!(-5));
+}
+
 #[test]
 fn browser_and_page_client_command_ids_are_isolated_and_restored() {
     let mut routing = CdpFrontendRoutingState::default();

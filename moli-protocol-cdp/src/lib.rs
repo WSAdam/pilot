@@ -22,5 +22,5 @@ pub use time::{DEFAULT_LOADER_ID, monotonic_timestamp_seconds};
 pub use wire::{
     CdpCommandParseError, CdpCommandParseErrorKind, CdpInspectorTaskMode, CdpRendererCommandAccess,
     CdpRendererCommandPolicy, CdpRendererCommandReplacement, CdpRendererCommandReplayDispatch,
-    CdpRequest, ParsedCdpCommand,
+    CdpRequest, ParsedCdpCommand, client_command_id_value,
 };

@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{
     CdpFrontendRoutingState, CdpRoutedFrontend,
@@ -25,7 +25,7 @@ impl CdpFrontendRoutingState {
         internal_command_id: u64,
     ) -> Option<(CdpRoutedFrontend, Value)> {
         let pending = self.pending_commands.take(internal_command_id)?;
-        message["id"] = json!(pending.client_command_id);
+        message["id"] = moli_protocol_cdp::client_command_id_value(pending.client_command_id);
         let CdpCommandFrontend {
             frontend_id,
             dispatch_session_id,
