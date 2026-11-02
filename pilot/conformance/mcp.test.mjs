@@ -47,11 +47,13 @@ const modes = {
 for (const [mode, setUp] of Object.entries(modes)) {
   test(`Playwright MCP drives pilot in ${mode} mode`, { timeout: 90_000 }, async () => {
     const { args, stop } = await setUp();
+    // MCP writes snapshots and screenshots to files; keep them out of the repo.
+    const outputDir = await freshProfileDir(`mcp-output-${mode}`);
     const client = new Client({ name: 'pilot-conformance', version: '0.1.0' });
     try {
       await client.connect(new StdioClientTransport({
         command: process.execPath,
-        args: [mcpCli, ...args],
+        args: [mcpCli, '--output-dir', outputDir, ...args],
         stderr: 'inherit',
       }));
       await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });

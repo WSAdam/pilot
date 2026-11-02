@@ -1,0 +1,2 @@
+# Playwright MCP's default output folder; the tests pass --output-dir instead.
+.playwright-mcp/
