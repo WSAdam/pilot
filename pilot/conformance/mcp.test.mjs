@@ -55,6 +55,25 @@ async function connectMcp(args) {
   return client;
 }
 
+// 2026-11-02: the walking skeleton's bug. Layout froze after the first
+// geometry read, so a button added later had no snapshot ref (Playwright saw
+// a 0x0, invisible box) and the agent could not click it.
+test('Playwright MCP gives a button added after load a ref and clicks it', { timeout: 90_000 }, async () => {
+  const client = await connectMcp(['--executable-path', pilotBin, '--isolated', '--headless']);
+  try {
+    await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/late-button.html` });
+    let snapshot = await callTool(client, 'browser_snapshot', {});
+    await callTool(client, 'browser_click', { element: 'Add late button', target: refFor(snapshot, 'button "Add late button"') });
+    snapshot = await callTool(client, 'browser_snapshot', {});
+    const lateRef = refFor(snapshot, 'button "Late button"');
+    assert.ok(lateRef, `the appended button has a ref:\n${snapshot}`);
+    await callTool(client, 'browser_click', { element: 'Late button', target: lateRef });
+    assert.match(await callTool(client, 'browser_snapshot', {}), /late clicked/);
+  } finally {
+    await client.close();
+  }
+});
+
 // pilot holds the profile's SingletonLock like Chromium, so MCP refuses a
 // second browser on it instead of starting one that fights over the profile.
 test('a second Playwright MCP on the same profile reports it in use', { timeout: 90_000 }, async () => {

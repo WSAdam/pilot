@@ -93,3 +93,21 @@ The script connects over CDP to `moli serve --layout` and uses Playwright 1.65's
 | RSS with 25 contexts and pages | 360.4 MiB (**about 11.4 MiB per extra context**) |
 
 There's no Chromium comparison yet, because Chromium oracle runs are on hold (see above).
+
+### M2: pilot with `Live` layout
+
+Command: `node bench/bench.mjs --bin target/release/pilot --runs 10 --contexts 25 --label m2-pilot-live`. Results are in [bench/results/2026-11-02-m2-pilot-live.json](../bench/results/2026-11-02-m2-pilot-live.json). The bench launches pilot with Chromium's switches (`--headless --remote-debugging-port`), so geometry follows DOM changes.
+
+| Metric | Moli baseline | pilot M2 |
+|---|---|---|
+| Spawn until `/json/version/` answers | 27.3 ms | 26.5 ms |
+| Spawn until the first AI snapshot is done | 130.9 ms | 129.9 ms |
+| Warm AI snapshot | 50.1 ms | 51.8 ms |
+| `fill` | 4.6 ms | 7.4 ms |
+| `click` | 45.1 ms | 54.1 ms |
+| RSS with 25 contexts and pages | 360.4 MiB | 360.8 MiB |
+| `getBoundingClientRect` right after a DOM change | (stale under `OnDemand`) | 2 ms |
+| The same read again, no change in between | | under 0.1 ms |
+| `click` on a button added just before | (times out under `OnDemand`) | 57.7 ms |
+
+`click` and `fill` are slower because `Live` rebuilds the whole layout after a hover or focus change, so Playwright's mouse sequence can lay the page out more than once per click. Narrowing what counts as stale is M5 work.

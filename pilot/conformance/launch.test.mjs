@@ -24,6 +24,39 @@ async function driveGreeting(page) {
   assert.match(snapshot, /paragraph \[ref=e\d+\]: Hello, pilot/);
 }
 
+// 2026-11-02: layout froze after the first geometry read, so a button added
+// later had a 0x0 box and Playwright's click timed out (upstream #1080).
+test('a button added after the page loaded can be clicked', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/late-button.html`);
+    await page.getByRole('button', { name: 'Add late button' }).click();
+    await page.getByRole('button', { name: 'Late button', exact: true }).click({ timeout: 5_000 });
+    assert.equal(await page.locator('#out').textContent(), 'late clicked');
+  } finally {
+    await browser.close();
+  }
+});
+
+// 2026-11-02: the same frozen layout made selectOption (#1289) and hover
+// (#2069) time out on controls inserted after the first layout.
+test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/late-controls.html`);
+    await page.getByRole('button', { name: 'Add controls' }).click();
+    const out = page.locator('#out');
+    await page.getByRole('combobox', { name: 'Size' }).selectOption('Large', { timeout: 5_000 });
+    assert.equal(await out.textContent(), 'size Large');
+    await page.getByText('Hover me').hover({ timeout: 5_000 });
+    assert.equal(await out.textContent(), 'hovered');
+  } finally {
+    await browser.close();
+  }
+});
+
 for (const headless of [true, false]) {
   test(`chromium.launch drives a page and closes (headless=${headless})`, { timeout: 60_000 }, async () => {
     const browser = await chromium.launch({ executablePath: pilotBin, headless, timeout: LAUNCH_TIMEOUT_MS });

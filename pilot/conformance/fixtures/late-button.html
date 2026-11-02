@@ -1,0 +1,8 @@
+<!doctype html>
+<html>
+<head><title>late button</title></head>
+<body>
+  <p id="out">not clicked</p>
+  <button id="add" onclick="const late = document.createElement('button'); late.textContent = 'Late button'; late.onclick = () => { document.getElementById('out').textContent = 'late clicked'; }; document.body.appendChild(late)">Add late button</button>
+</body>
+</html>

@@ -1,5 +1,6 @@
 // Benchmarks a moli-compatible browser the way Playwright MCP drives it, over CDP only.
-// It never launches Chromium: the browser under test is started as `<bin> serve --layout --port <port>`.
+// It never launches Chromium: a `moli` binary is started as `<bin> serve --layout --port <port>`,
+// a `pilot` binary with Chromium's switches (`--headless --remote-debugging-port=<port>`).
 //
 // Usage: node bench.mjs --bin <path-to-moli-or-pilot> [--runs 10] [--contexts 25] [--label baseline]
 // Writes results/<date>-<label>.json and prints a summary.
@@ -8,6 +9,7 @@ import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
 import { cpus, arch, platform, release, totalmem } from 'node:os';
+import { basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright-core';
 
@@ -62,7 +64,10 @@ async function startFixtureServer() {
 async function startBrowser() {
   const port = await freePort();
   const started = performance.now();
-  const child = spawn(options.bin, ['serve', '--layout', '--port', String(port)], { stdio: 'ignore' });
+  const args = basename(options.bin).startsWith('pilot')
+    ? ['--headless', `--remote-debugging-port=${port}`, '--no-startup-window']
+    : ['serve', '--layout', '--port', String(port)];
+  const child = spawn(options.bin, args, { stdio: 'ignore' });
   const endpoint = `http://127.0.0.1:${port}`;
   const deadline = started + 15_000;
   while (performance.now() < deadline) {
@@ -175,6 +180,57 @@ async function measureMemory(pageUrl) {
   }
 }
 
+// Geometry after DOM changes: since layout is rebuilt when the DOM changed
+// (pilot-core live layout), a read right after a mutation pays for a layout
+// pass. Track that cost against a cached read, and a Playwright click on a
+// freshly added button (actionability reads geometry several times).
+async function measureGeometry(pageUrl) {
+  const { child, endpoint } = await startBrowser();
+  const browser = await chromium.connectOverCDP(endpoint);
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(pageUrl);
+    const reads = await page.evaluate((rounds) => {
+      const afterMutation = [];
+      const cached = [];
+      for (let round = 0; round < rounds; round++) {
+        const probe = document.createElement('div');
+        probe.textContent = `probe ${round}`;
+        document.body.append(probe);
+        let started = performance.now();
+        probe.getBoundingClientRect();
+        afterMutation.push(performance.now() - started);
+        started = performance.now();
+        probe.getBoundingClientRect();
+        cached.push(performance.now() - started);
+        probe.remove();
+      }
+      return { afterMutation, cached };
+    }, runs * 2);
+    const lateClickMs = [];
+    for (let run = 0; run < runs; run++) {
+      const label = `Late ${run}`;
+      // Prepended so it stays inside the viewport: this measures geometry
+      // after a mutation, not scrolling.
+      await page.evaluate((text) => {
+        const button = document.createElement('button');
+        button.textContent = text;
+        document.body.prepend(button);
+      }, label);
+      const started = performance.now();
+      await page.getByRole('button', { name: label, exact: true }).click();
+      lateClickMs.push(performance.now() - started);
+    }
+    return {
+      readAfterMutationMs: summarize(reads.afterMutation),
+      cachedReadMs: summarize(reads.cached),
+      lateClickMs: summarize(lateClickMs),
+    };
+  } finally {
+    await stopBrowser(browser, child);
+  }
+}
+
 console.log(`🚀 benchmarking ${options.bin} (${runs} runs, ${contextCount} contexts)`);
 const { server, baseUrl } = await startFixtureServer();
 const pageUrl = `${baseUrl}/agent-page.html`;
@@ -185,6 +241,8 @@ try {
   console.log('✅ warm page actions measured');
   const memory = await measureMemory(pageUrl);
   console.log('✅ memory measured');
+  const geometry = await measureGeometry(pageUrl);
+  console.log('✅ geometry measured');
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD']).toString().trim();
   const result = {
     label: options.label,
@@ -198,12 +256,13 @@ try {
     startup: { ...startup, version: undefined },
     warm,
     memory,
+    geometry,
   };
   await mkdir(new URL('./results/', import.meta.url), { recursive: true });
   const outFile = new URL(`./results/${result.date.slice(0, 10)}-${options.label}.json`, import.meta.url);
   await writeFile(outFile, `${JSON.stringify(result, null, 2)}\n`);
   console.log(`✅ wrote ${outFile.pathname}`);
-  console.log(JSON.stringify({ startup: Object.fromEntries(Object.entries(result.startup).filter(([, value]) => value).map(([key, value]) => [key, value.median])), warm: Object.fromEntries(Object.entries(warm).map(([key, value]) => [key, value.median])), memory }, null, 2));
+  console.log(JSON.stringify({ startup: Object.fromEntries(Object.entries(result.startup).filter(([, value]) => value).map(([key, value]) => [key, value.median])), warm: Object.fromEntries(Object.entries(warm).map(([key, value]) => [key, value.median])), memory, geometry: Object.fromEntries(Object.entries(geometry).map(([key, value]) => [key, value.median])) }, null, 2));
 } catch (error) {
   console.error('❌ benchmark failed:', error);
   process.exitCode = 1;

@@ -5,17 +5,13 @@
 //! claimed the way Chromium claims it, and Moli serves CDP in-process.
 
 use anyhow::{Context, Result};
-use clap::Parser;
 use pilot::argv::ChromiumLaunch;
 use std::process::ExitCode;
 
 fn run() -> Result<ExitCode> {
     moli_process_signal::install_immediate_exit_handlers()?;
     let launch = ChromiumLaunch::parse(std::env::args_os().skip(1));
-    let cli = moli::cli::Cli::try_parse_from(launch.moli_serve_args())
-        .context("❌ pilot could not translate the Chromium command line for moli")?;
-    let config = moli::config::AppConfig::from_cli(&cli)
-        .context("❌ pilot could not build the moli configuration")?;
+    let config = pilot::config::moli_config(&launch)?;
     moli::telemetry::init(&config.log_filter);
     if !launch.ignored_switches.is_empty() {
         tracing::debug!(switches = ?launch.ignored_switches, "🔍 ignoring Chromium switches");

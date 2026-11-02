@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <title>late controls</title>
+  <style>
+    #hover-target { display: inline-block; padding: 8px; }
+    #hover-target:hover { outline: 2px solid red; }
+  </style>
+</head>
+<body>
+  <p id="out">nothing yet</p>
+  <button id="add">Add controls</button>
+  <div id="slot"></div>
+  <script>
+    const out = document.getElementById('out');
+    const log = (text) => { out.textContent = text; };
+    document.getElementById('add').addEventListener('click', () => {
+      document.getElementById('slot').innerHTML = `
+        <label><input type="checkbox" id="agree"> Agree</label>
+        <label>Size <select id="size"><option>Small</option><option>Large</option></select></label>
+        <span id="hover-target">Hover me</span>`;
+      document.getElementById('agree').addEventListener('change', (event) => log(`agree ${event.target.checked}`));
+      document.getElementById('size').addEventListener('change', (event) => log(`size ${event.target.value}`));
+      document.getElementById('hover-target').addEventListener('mouseenter', () => log('hovered'));
+    });
+  </script>
+</body>
+</html>
