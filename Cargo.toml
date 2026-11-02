@@ -94,7 +94,8 @@ members = [
     "moli-time",
     "moli-trace",
     "moli-http-cache",
-    "moli-wpt-compat"
+    "moli-wpt-compat",
+    "pilot"
 ]
 
 [workspace.package]

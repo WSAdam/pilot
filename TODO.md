@@ -11,11 +11,11 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Baseline benchmark in bench/: CDP-ready time, RSS for 1 and 25 contexts, goto-to-first-MCP-snapshot time, compared with chrome-headless-shell
 
 ## M1: Launchable by Playwright (pilot binary crate)
-- [ ] pilot runs without a subcommand and ignores unknown Chromium switches (pilot/src/argv.rs)
+- [x] pilot runs without a subcommand and ignores unknown Chromium switches (pilot/src/argv.rs)
 - [ ] pilot maps --user-data-dir to the Moli profile dir and writes a SingletonLock symlink there
-- [ ] pilot accepts --headless, --remote-debugging-port and --remote-debugging-address
+- [x] pilot accepts --headless, --remote-debugging-port and --remote-debugging-address
 - [ ] pilot opens about:blank as the start page, or no page with --no-startup-window
-- [ ] pilot always runs with real layout on (Moli --layout)
+- [x] pilot always runs with real layout on (Moli --layout)
 - [x] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
 - [ ] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
 - [ ] Target.attachedToTarget arrives before the createTarget reply, and the main frame id equals the targetId

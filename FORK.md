@@ -23,7 +23,7 @@ pilot is a fork of [lexmount/moli](https://github.com/lexmount/moli), made into 
 
 | Crate | Purpose |
 |---|---|
-| `pilot` (planned, M1) | The `pilot` binary: a Chromium-compatible command line, pipe and port transports, and the choice between headless and the window |
+| `pilot` | The `pilot` binary: reads Chromium's command line as Playwright passes it (`pilot/src/argv.rs`, fixtures captured from Playwright 1.65 and MCP 0.0.84 in `pilot/tests/fixtures/`) and runs `moli serve --layout` over the pipe or port it asks for. Later: the choice between headless and the window |
 | `pilot-window` (planned, M3) | The "watch the agent" window: winit + softbuffer, attached as a CDP client over loopback |
 
 ## Core patches (changes to upstream files)
@@ -33,4 +33,5 @@ Each patch is one commit whose subject starts with `pilot-core:`.
 | Patch | Upstream files touched | Guarding test | Upstream equivalent |
 |---|---|---|---|
 | Accept negative CDP command ids, as Chromium does (Playwright closes a launched browser with `Browser.close` id −9999), and echo them back signed | `moli-protocol-cdp/src/{wire,lib}.rs`, `moli-protocol-server/src/cdp_frontend_router/{routing,routing/output}.rs` | `wire::tests::negative_command_ids_are_valid_like_chromium`, `routing::tests::negative_client_command_ids_are_accepted_and_restored_on_every_reply` | none |
+| Add the fork-owned `pilot` crate to the workspace | `Cargo.toml` (`members`) | builds `pilot` | none (fork only) |
 | CDP over Chromium's `--remote-debugging-pipe` (fd 3 in, fd 4 out, NUL-framed), as `moli serve --remote-debugging-pipe` and `ProtocolServer::serve_pipe` | `moli-protocol-server/src/{cdp_writer.rs,protocol_server/{mod,cdp_pipe}.rs}`, `moli/{Cargo.toml,src/app.rs,src/cli.rs,tests/cli.rs}`, `README.md` | `moli/tests/remote_debugging_pipe.rs` (real binary, real pipes, Playwright's `Browser.close` id), `protocol_server::cdp_pipe::tests::*`, `cli::parses_remote_debugging_pipe_and_rejects_listener_flags` | lexmount/moli PR #2247 (open), ported whole so it merges cleanly if upstream lands it |
