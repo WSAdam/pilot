@@ -1,0 +1,12 @@
+{
+  "name": "pilot-bench",
+  "private": true,
+  "type": "module",
+  "description": "Startup, memory and snapshot-latency benchmarks for pilot/moli over CDP",
+  "scripts": {
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.65.0-alpha-2026-10-30"
+  }
+}

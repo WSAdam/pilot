@@ -4,10 +4,10 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 
 ## M0: Fork, build and baseline
 - [x] Fork lexmount/moli to WSAdam/moli, clone here with an upstream remote, GitHub Actions disabled on the fork
-- [ ] Release build of moli succeeds on macOS arm64 (cargo build --release -p moli)
+- [x] Release build of moli succeeds on macOS arm64 (cargo build --release -p moli)
 - [ ] Pinned baseline of workspace nextest and moli-cdp-smoke results recorded in docs/baseline.md
 - [x] DECISIONS.md, FORK.md and docs/playwright-contract.md committed
-- [ ] Walking skeleton: Playwright MCP --cdp-endpoint drives `moli serve --layout` on a static page — navigate, snapshot, click (needs live run)
+- [x] Walking skeleton: Playwright MCP --cdp-endpoint drives `moli serve --layout` on a static page — navigate, snapshot, click (needs live run)
 - [ ] Baseline benchmark in bench/: CDP-ready time, RSS for 1 and 25 contexts, goto-to-first-MCP-snapshot time, compared with chrome-headless-shell
 
 ## M1: Launchable by Playwright (pilot binary crate)
@@ -59,3 +59,14 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] The user's own sprig/Fresh apps pass through Playwright MCP tools on pilot
 - [ ] Open-web corpus (~100 sites incl. Gmail, Docs, YouTube) pass rate tracked per release in compat/report.json
 - [ ] Linux headless: M1 and M2 tests pass in a Linux container (needs live run)
+
+## Bugs found
+- [ ] Button appended after page load gets no ref in the Playwright MCP snapshot and cannot be clicked (frozen layout; walking-skeleton fixture)
+- [ ] A second Playwright MCP --cdp-endpoint session against the same moli process gets f1-prefixed refs, as if the page were a child frame
+- [ ] On macOS a file picked through the file chooser reports size 8 instead of 15 (moli-cdp-smoke dom-input group fails 3/3)
+- [ ] On macOS moli::fetch_cli cli_connection_failure_reports_curl_code_and_cause fails: connecting to a bound non-listening port times out (curl 28) instead of being refused (curl 7)
+
+## M0 additions
+- [x] Scoped Rust baseline (nextest for moli and moli-protocol-server) and the moli-cdp-smoke result recorded in docs/baseline.md
+- [x] Moli-only baseline benchmark (startup, warm actions, RSS for 1 and 25 contexts) in bench/results/2026-11-02-moli-baseline.json
+- [ ] Chromium comparison for the smoke suite and benchmarks, run with --use-mock-keychain --password-store=basic so macOS never shows a Keychain prompt
