@@ -6,8 +6,8 @@ pilot is a fork of [lexmount/moli](https://github.com/lexmount/moli), made into 
 
 | Remote | URL | Use |
 |---|---|---|
-| `origin` | https://github.com/WSAdam/moli | Our fork. GitHub Actions are disabled here, because upstream workflows target self-hosted runners. |
-| `upstream` | https://github.com/lexmount/moli | Read-only source of release tags |
+| `origin` | https://github.com/WSAdam/pilot | Our fork (renamed from `moli`). GitHub Actions are disabled here, because upstream workflows target self-hosted runners. Each finished unit is pushed here once its suite is green. |
+| `upstream` | https://github.com/lexmount/moli | Fetch-only source of release tags. Its push URL is set to `DISABLED-pilot-never-pushes-to-moli`. |
 
 **Base:** upstream main `51d6d1ee3` (2026-11-02), which is 113 commits past `v1.1.20`.
 

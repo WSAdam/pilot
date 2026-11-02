@@ -6,7 +6,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Fork lexmount/moli to WSAdam/moli, clone here with an upstream remote, GitHub Actions disabled on the fork
 - [ ] Release build of moli succeeds on macOS arm64 (cargo build --release -p moli)
 - [ ] Pinned baseline of workspace nextest and moli-cdp-smoke results recorded in docs/baseline.md
-- [ ] DECISIONS.md, FORK.md and docs/playwright-contract.md committed
+- [x] DECISIONS.md, FORK.md and docs/playwright-contract.md committed
 - [ ] Walking skeleton: Playwright MCP --cdp-endpoint drives `moli serve --layout` on a static page — navigate, snapshot, click (needs live run)
 - [ ] Baseline benchmark in bench/: CDP-ready time, RSS for 1 and 25 contexts, goto-to-first-MCP-snapshot time, compared with chrome-headless-shell
 
