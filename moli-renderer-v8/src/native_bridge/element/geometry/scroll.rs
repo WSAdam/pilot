@@ -46,6 +46,9 @@ pub(super) fn set_node_scroll_position(
             document,
         )
     };
+    if changed {
+        unsafe { &*runtime_ptr }.note_scroll_offset_changed();
+    }
     if changed && queue_observable_effects {
         queue_scroll_observable_effects(scope, runtime_ptr, document, false);
     }

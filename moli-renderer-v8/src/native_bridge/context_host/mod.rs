@@ -824,6 +824,8 @@ pub(crate) struct JsContextHost {
     layout_snapshot_cache_hits: Cell<u64>,
     layout_snapshot_cache_misses: Cell<u64>,
     layout_snapshot_cache_publishes: Cell<u64>,
+    /// pilot: bumped whenever an element or viewport scroll offset changes.
+    scroll_offset_version: Cell<u64>,
     style_viewport_generation: Cell<u64>,
     root_document_lifecycle: Option<RendererDocumentLifecycleJournalHandle>,
     output_journal: Option<crate::runtime::RendererTurnOutputJournal>,

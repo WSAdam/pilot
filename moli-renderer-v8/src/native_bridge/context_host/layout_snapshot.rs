@@ -2,9 +2,17 @@ use moli_layout::FrozenLayoutTree;
 
 use crate::document_runtime::DomHandle;
 
+/// pilot: what a latest layout was built from. Scrolling records no DOM
+/// change but moves every scrolled box, so it has its own counter.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LayoutSourceVersion {
+    pub(crate) dom: u64,
+    pub(crate) scroll: u64,
+}
+
 struct LatestFrozenLayout {
     document: DomHandle,
-    dom_version: u64,
+    source: LayoutSourceVersion,
     tree: Box<FrozenLayoutTree<DomHandle>>,
 }
 
@@ -36,12 +44,12 @@ impl LatestLayoutTreeCache {
     pub(super) fn publish(
         &mut self,
         document: DomHandle,
-        dom_version: u64,
+        source: LayoutSourceVersion,
         tree: FrozenLayoutTree<DomHandle>,
     ) {
         self.latest = Some(LatestFrozenLayout {
             document,
-            dom_version,
+            source,
             tree: Box::new(tree),
         });
     }
@@ -49,10 +57,10 @@ impl LatestLayoutTreeCache {
     /// The first geometry demand may run while the document is still parsing;
     /// without a version check that early tree would serve stale or empty
     /// geometry to every later observable query.
-    pub(super) fn is_current(&self, document: DomHandle, dom_version: u64) -> bool {
-        self.latest.as_ref().is_some_and(|snapshot| {
-            snapshot.document == document && snapshot.dom_version == dom_version
-        })
+    pub(super) fn is_current(&self, document: DomHandle, source: LayoutSourceVersion) -> bool {
+        self.latest
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.document == document && snapshot.source == source)
     }
 
     pub(super) fn clear(&mut self) {

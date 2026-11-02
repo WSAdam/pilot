@@ -1154,6 +1154,9 @@ pub(crate) fn scroll_window_to(
             .and_then(|node| node.data_mut().as_element_mut())
             .is_some_and(|element| element.set_scroll_left(x) | element.set_scroll_top(y))
     });
+    if scrolling_element_changed {
+        unsafe { &*host_ptr }.note_scroll_offset_changed();
+    }
     let global = scope.get_current_context().global(scope);
     if !set_scroll_position(scope, global, x, y) && !scrolling_element_changed {
         return;

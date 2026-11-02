@@ -69,6 +69,20 @@ impl JsContextHost {
         self.layout_policy
     }
 
+    /// Records that a scroll offset changed, which moves every box inside the
+    /// scrolled element without changing the DOM.
+    pub(crate) fn note_scroll_offset_changed(&self) {
+        self.scroll_offset_version
+            .set(self.scroll_offset_version.get().wrapping_add(1));
+    }
+
+    fn layout_source_version(&self) -> super::layout_snapshot::LayoutSourceVersion {
+        super::layout_snapshot::LayoutSourceVersion {
+            dom: self.dom_host().dom_version(),
+            scroll: self.scroll_offset_version.get(),
+        }
+    }
+
     pub(crate) fn set_scrollbars_hidden(&mut self, hidden: bool) -> bool {
         let changed = self.scrollbars_hidden != hidden;
         if changed {
@@ -289,7 +303,7 @@ impl JsContextHost {
         let latest_is_usable = {
             let state = self.document_layout_state.borrow();
             if self.layout_policy.rebuilds_stale_layout() {
-                state.latest_layout_is_current(document, self.dom_host().dom_version())
+                state.latest_layout_is_current(document, self.layout_source_version())
             } else {
                 state.latest_layout(document).is_some()
             }
@@ -458,7 +472,7 @@ impl JsContextHost {
         let frame_viewports_changed = {
             let mut state = self.document_layout_state.borrow_mut();
             state.retain_live_frame_viewports(|frame| self.child_browsing_context_is_live(frame));
-            state.publish_latest_layout(document, self.dom_host().dom_version(), tree);
+            state.publish_latest_layout(document, self.layout_source_version(), tree);
             state.update_frame_viewports(frame_viewports)
         };
         if frame_viewports_changed {
