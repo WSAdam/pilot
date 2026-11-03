@@ -153,7 +153,13 @@ fn singleton_lock_target(profile: &std::path::Path) -> Option<String> {
         .map(|target| target.to_string_lossy().into_owned())
 }
 
+/// Launches pilot as Playwright does, without its window, so the suite
+/// opens no windows on a desktop.
 fn spawn_like_playwright(fixture: &str, argv: &str) -> PipedPilot {
+    spawn_with_window(fixture, argv, false)
+}
+
+fn spawn_with_window(fixture: &str, argv: &str, window: bool) -> PipedPilot {
     let profile = fresh_profile_dir(fixture);
     let args = playwright_args(argv, &profile);
     let (child_input, parent_commands) = pipe();
@@ -166,6 +172,9 @@ fn spawn_like_playwright(fixture: &str, argv: &str) -> PipedPilot {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if !window {
+        command.env(pilot::headful::NO_WINDOW_ENV, "1");
+    }
     // SAFETY: only async-signal-safe `dup2` calls run between fork and exec.
     // Both sources are at 10 or above, so placing them at 3 and 4 cannot
     // clobber one another; `dup2` clears close-on-exec on the copies.
@@ -271,4 +280,23 @@ fn a_second_pilot_on_a_profile_in_use_fails_like_chromium() {
 
     first.send(json!({ "id": PLAYWRIGHT_BROWSER_CLOSE_ID, "method": "Browser.close" }));
     assert!(first.wait_for_exit(fixture).success());
+}
+
+// 2026-11-03: with the watch-the-agent window open, pilot answered and closed
+// the browser on Browser.close but never exited: the runtime went down with
+// the browser thread and cancelled the window's controller before it could
+// tell the window the browser had stopped. A headed launch opens a real
+// window here (on a desktop; without a display pilot runs headless).
+#[test]
+fn a_headed_launch_with_its_window_still_closes_like_chromium() {
+    for (fixture, argv) in [FIXTURES[1], FIXTURES[4]] {
+        let mut pilot = spawn_with_window(fixture, argv, true);
+        pilot.send(json!({ "id": 1, "method": "Browser.getVersion" }));
+        assert!(pilot.reply_to(1, fixture)["result"]["product"].is_string());
+        pilot.send(json!({ "id": PLAYWRIGHT_BROWSER_CLOSE_ID, "method": "Browser.close" }));
+        assert!(
+            pilot.wait_for_exit(fixture).success(),
+            "{fixture}: pilot exits cleanly"
+        );
+    }
 }

@@ -8,6 +8,7 @@
 
 pub mod argv;
 pub mod config;
+pub mod headful;
 #[cfg(unix)]
 pub mod profile;
 pub mod serve;

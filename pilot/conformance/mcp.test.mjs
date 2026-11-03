@@ -5,7 +5,7 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { freshProfileDir, pilotBin, startFixtureServer, startPilotOnPort } from './support.mjs';
+import { freshProfileDir, noWindowEnv, pilotBin, startFixtureServer, startPilotOnPort } from './support.mjs';
 
 // The package does not export its CLI entry point, so run it by path.
 const mcpCli = fileURLToPath(new URL('./node_modules/@playwright/mcp/cli.js', import.meta.url));
@@ -44,12 +44,13 @@ const modes = {
   },
 };
 
-async function connectMcp(args) {
+async function connectMcp(args, { window = false } = {}) {
   const outputDir = await freshProfileDir('mcp-output');
   const client = new Client({ name: 'pilot-conformance', version: '0.1.0' });
   await client.connect(new StdioClientTransport({
     command: process.execPath,
     args: [mcpCli, '--output-dir', outputDir, ...args],
+    env: window ? { ...process.env } : noWindowEnv,
     stderr: 'inherit',
   }));
   return client;
@@ -121,6 +122,7 @@ for (const [mode, setUp] of Object.entries(modes)) {
       await client.connect(new StdioClientTransport({
         command: process.execPath,
         args: [mcpCli, '--output-dir', outputDir, ...args],
+        env: noWindowEnv,
         stderr: 'inherit',
       }));
       await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });
@@ -140,3 +142,25 @@ for (const [mode, setUp] of Object.entries(modes)) {
     }
   });
 }
+
+// MCP's default mode is headed, so this is what an agent gets out of the box:
+// pilot's window watches the page while MCP drives it. Opens a real window on
+// a desktop.
+test('Playwright MCP drives pilot with its window open in default mode', { timeout: 90_000 }, async () => {
+  const client = await connectMcp(
+    ['--executable-path', pilotBin, '--user-data-dir', await freshProfileDir('mcp-window')],
+    { window: true },
+  );
+  try {
+    await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });
+    let snapshot = await callTool(client, 'browser_snapshot', {});
+    await callTool(client, 'browser_type', { element: 'Name textbox', target: refFor(snapshot, 'textbox "Name"'), text: 'pilot' });
+    await callTool(client, 'browser_click', { element: 'Greet button', target: refFor(snapshot, 'button "Greet"') });
+    snapshot = await callTool(client, 'browser_snapshot', {});
+    assert.match(snapshot, /Hello, pilot/);
+    await callTool(client, 'browser_take_screenshot', {});
+    await callTool(client, 'browser_close', {});
+  } finally {
+    await client.close();
+  }
+});

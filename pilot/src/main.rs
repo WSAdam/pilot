@@ -38,12 +38,17 @@ fn run() -> Result<ExitCode> {
     };
 
     let runtime_thread_budget = moli::runtime_thread_budget::tokio_runtime_thread_budget();
-    tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(runtime_thread_budget)
         .max_blocking_threads(runtime_thread_budget)
         .enable_all()
-        .build()?
-        .block_on(pilot::serve::run(&launch, &config))?;
+        .build()?;
+    if pilot::headful::wants_window(&launch, std::env::var_os(pilot::headful::NO_WINDOW_ENV)) {
+        tracing::info!("🚀 pilot starting with its watch-the-agent window");
+        pilot::headful::run(launch, config, runtime)?;
+    } else {
+        runtime.block_on(pilot::serve::run(&launch, &config))?;
+    }
     tracing::info!("✅ pilot exited cleanly");
     Ok(ExitCode::SUCCESS)
 }

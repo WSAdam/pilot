@@ -30,12 +30,12 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Geometry query timing benchmark in bench/ guards against #1617-style slowdowns
 
 ## M3: Watch-the-agent window (pilot-window crate)
-- [ ] pilot opens a watch-the-agent window whenever --headless is absent
-- [ ] Window tab strip tracks page targets from Target events
-- [ ] Window URL bar, back, forward and reload drive the active tab
-- [ ] Window shows live screencast frames of the active tab, paused while the window is hidden
-- [ ] Human mouse, wheel and keyboard input in the window reaches the page at the right CSS-pixel coordinates
-- [ ] Window shows an indicator while the agent is sending commands
+- [x] pilot opens a watch-the-agent window whenever --headless is absent
+- [x] Window tab strip tracks page targets from Target events
+- [x] Window URL bar, back, forward and reload drive the active tab
+- [x] Window shows live screencast frames of the active tab, paused while the window is hidden
+- [x] Human mouse, wheel and keyboard input in the window reaches the page at the right CSS-pixel coordinates
+- [x] Window shows an indicator while the agent is sending commands
 - [ ] Headful window verified by hand while Playwright MCP drives pilot (needs live run)
 
 ## M4: MCP protocol gaps and Playwright suite pass rates
@@ -84,3 +84,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Playwright cannot click, check or fill a form control inside an inline <label>: hit testing returns the label above the control, so "<label> intercepts pointer events" (port upstream PR #395)
 - [x] Playwright cannot click an element below the fold: after a viewport scroll (script or DOM.scrollIntoViewIfNeeded), getBoundingClientRect and DOM.getContentQuads keep the pre-scroll position, so Playwright reports "element is outside of the viewport"
 - [ ] Under Live layout a Playwright click re-lays out the page only when a hover or focus change affects some style, bringing the bench click median back near the 45 ms Moli baseline (M5)
+- [x] A headed pilot with its window open never exits after Browser.close: the window controller was cancelled with the browser runtime before it could close the window
+- [x] Set PILOT_NO_WINDOW=1 to run pilot without its window when --headless is absent (automated runs on a desktop); document it where users will find it

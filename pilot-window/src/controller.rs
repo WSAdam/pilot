@@ -39,6 +39,8 @@ pub enum Command {
     },
     /// The window closed: stop the browser.
     Close,
+    /// The window could not open: leave the browser running without it.
+    Detach,
 }
 
 /// What the window shows.
@@ -106,6 +108,7 @@ pub async fn run_controller(
                     connector.request_shutdown();
                     return Ok(());
                 }
+                Some(Command::Detach) => return Ok(()),
                 Some(command) => controller.handle_command(command).await,
             },
             _ = poll.tick() => {
@@ -262,7 +265,7 @@ impl<F: FnMut(Update)> Controller<F> {
                     }
                 }
             }
-            Command::Close => {}
+            Command::Close | Command::Detach => {}
         }
     }
 

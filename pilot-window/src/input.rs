@@ -282,3 +282,40 @@ mod tests {
         assert_eq!(backspace["windowsVirtualKeyCode"], 8);
     }
 }
+
+/// The URL to load for what was typed into the URL bar: kept as typed when
+/// it has a scheme, otherwise treated as an https address.
+pub fn url_from_bar(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return None;
+    }
+    let has_scheme = typed.contains("://")
+        || ["about:", "data:", "file:", "javascript:"]
+            .iter()
+            .any(|scheme| typed.starts_with(scheme));
+    Some(if has_scheme {
+        typed.to_owned()
+    } else {
+        format!("https://{typed}")
+    })
+}
+
+#[cfg(test)]
+mod url_bar_tests {
+    use super::*;
+
+    #[test]
+    fn typed_addresses_get_a_scheme_and_full_urls_stay() {
+        assert_eq!(
+            url_from_bar("  example.com/a "),
+            Some("https://example.com/a".to_owned())
+        );
+        assert_eq!(
+            url_from_bar("http://localhost:8000"),
+            Some("http://localhost:8000".to_owned())
+        );
+        assert_eq!(url_from_bar("about:blank"), Some("about:blank".to_owned()));
+        assert_eq!(url_from_bar("   "), None);
+    }
+}

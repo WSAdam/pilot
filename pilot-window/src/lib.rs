@@ -8,8 +8,10 @@
 //! letterboxes the frames it is sent.
 
 pub mod agent;
+pub mod app;
 pub mod controller;
 pub mod frame;
 pub mod geometry;
 pub mod input;
 pub mod tabs;
+pub mod text;

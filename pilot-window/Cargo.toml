@@ -9,16 +9,23 @@ description = "pilot's headful window: watch the page the agent drives, and take
 [dependencies]
 anyhow = "1.0.100"
 base64 = "0.22"
+fontique = "=0.11.0"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 moli-protocol-server = { path = "../moli-protocol-server" }
 serde_json = "1.0.145"
+skrifa = "0.44.0"
+softbuffer = "0.4.8"
 tokio = { version = "1.51.0", features = ["macros", "sync", "time"] }
 tracing = "0.1.41"
+vello_cpu = "0.2.0"
+winit = "0.30.13"
 
 [dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 moli-core = { path = "../moli-core" }
 moli-fetch = { path = "../moli-fetch" }
-tokio = { version = "1.51.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.51.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

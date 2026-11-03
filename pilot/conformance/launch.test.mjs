@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright-core';
-import { freshProfileDir, pilotBin, startFixtureServer } from './support.mjs';
+import { freshProfileDir, noWindowEnv, pilotBin, startFixtureServer } from './support.mjs';
 
 const LAUNCH_TIMEOUT_MS = 30_000;
 let fixture;
@@ -27,7 +27,7 @@ async function driveGreeting(page) {
 // 2026-11-02: layout froze after the first geometry read, so a button added
 // later had a 0x0 box and Playwright's click timed out (upstream #1080).
 test('a button added after the page loaded can be clicked', { timeout: 60_000 }, async () => {
-  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
   try {
     const page = await (await browser.newContext()).newPage();
     await page.goto(`${fixture.baseUrl}/late-button.html`);
@@ -43,7 +43,7 @@ test('a button added after the page loaded can be clicked', { timeout: 60_000 },
 // the button into view, so it stayed "outside of the viewport" and the click
 // timed out.
 test('a button below the fold is scrolled into view and clicked', { timeout: 60_000 }, async () => {
-  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
   try {
     const page = await (await browser.newContext()).newPage();
     await page.goto(`${fixture.baseUrl}/below-fold.html`);
@@ -58,7 +58,7 @@ test('a button below the fold is scrolled into view and clicked', { timeout: 60_
 // it, so Playwright's click, check and fill failed with "<label> intercepts
 // pointer events" (upstream #385).
 test('form controls inside a label can be checked, chosen and filled', { timeout: 60_000 }, async () => {
-  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
   try {
     const page = await (await browser.newContext()).newPage();
     const out = page.locator('#out');
@@ -83,7 +83,7 @@ test('form controls inside a label can be checked, chosen and filled', { timeout
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {
-  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
   try {
     const page = await (await browser.newContext()).newPage();
     await page.goto(`${fixture.baseUrl}/late-controls.html`);
@@ -100,7 +100,7 @@ test('controls added after the page loaded can be selected and hovered', { timeo
 
 for (const headless of [true, false]) {
   test(`chromium.launch drives a page and closes (headless=${headless})`, { timeout: 60_000 }, async () => {
-    const browser = await chromium.launch({ executablePath: pilotBin, headless, timeout: LAUNCH_TIMEOUT_MS });
+    const browser = await chromium.launch({ executablePath: pilotBin, headless, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
     try {
       const context = await browser.newContext();
       await driveGreeting(await context.newPage());
@@ -117,6 +117,7 @@ for (const headless of [true, false]) {
     const context = await chromium.launchPersistentContext(profile, {
       executablePath: pilotBin,
       headless,
+      env: noWindowEnv,
       timeout: LAUNCH_TIMEOUT_MS,
     });
     try {
@@ -129,3 +130,18 @@ for (const headless of [true, false]) {
     }
   });
 }
+
+// pilot's window is a second CDP client watching the same page (screencast,
+// tab tracking); Playwright must drive the page exactly as without it. This
+// opens a real window on a desktop.
+test('chromium.launch drives a page with pilot\'s window open (headless=false)', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: false, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await driveGreeting(page);
+    await page.screenshot();
+  } finally {
+    await browser.close();
+  }
+  assert.equal(browser.isConnected(), false);
+});

@@ -14,6 +14,13 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 /** The pilot executable under test: PILOT_BIN, else the debug build. */
 export const pilotBin = process.env.PILOT_BIN ?? resolve(here, '../../target/debug/pilot');
 
+/**
+ * The environment for launches that should not open pilot's window: without
+ * --headless pilot opens one, as Chromium does, and a test run should not
+ * flash windows on the desktop. Tests of the window itself leave it out.
+ */
+export const noWindowEnv = { ...process.env, PILOT_NO_WINDOW: '1' };
+
 export async function startFixtureServer() {
   const server = createServer(async (request, response) => {
     try {

@@ -6,7 +6,7 @@ use std::{net::SocketAddr, path::Path, sync::Arc};
 use anyhow::{Context, Result};
 use moli::config::AppConfig;
 use moli_core::runtime::{NavigationRuntimeConfig, storage_partition::StoragePartitionState};
-use moli_protocol_server::{BrowserInstanceControl, ProtocolServer};
+use moli_protocol_server::{BrowserInstanceControl, LocalCdpConnector, ProtocolServer};
 
 use crate::argv::{ChromiumLaunch, DebuggingTransport};
 
@@ -14,6 +14,16 @@ use crate::argv::{ChromiumLaunch, DebuggingTransport};
 pub const BROWSER_ENDPOINT_PATH: &str = "/devtools/browser/moli-browser";
 
 pub async fn run(launch: &ChromiumLaunch, config: &AppConfig) -> Result<()> {
+    run_with_local_clients(launch, config, |_| {}).await
+}
+
+/// Like [`run`], and hands `on_ready` a connector for in-process CDP
+/// clients of the browser (the headful window).
+pub async fn run_with_local_clients(
+    launch: &ChromiumLaunch,
+    config: &AppConfig,
+    on_ready: impl FnOnce(LocalCdpConnector),
+) -> Result<()> {
     let storage_partition = Arc::new(StoragePartitionState::open(config.browser.profile_dir())?);
     let server = ProtocolServer::new_with_storage_partition_and_runtime_config(
         config.server.clone(),
@@ -21,13 +31,15 @@ pub async fn run(launch: &ChromiumLaunch, config: &AppConfig) -> Result<()> {
         NavigationRuntimeConfig::from(&config.browser),
     );
     match &launch.transport {
-        DebuggingTransport::Pipe => serve_pipe(&server).await,
+        DebuggingTransport::Pipe => serve_pipe(&server, on_ready).await,
         DebuggingTransport::Port { .. } => {
             let user_data_dir = launch.user_data_dir.clone();
             server
-                .serve_with_control_and_bound_hook(BrowserInstanceControl::new(), move |address| {
-                    announce(address, user_data_dir.as_deref())
-                })
+                .serve_with_control_bound_hook_and_local_clients(
+                    BrowserInstanceControl::new(),
+                    move |address| announce(address, user_data_dir.as_deref()),
+                    on_ready,
+                )
                 .await
                 .context("protocol server failed")
         }
@@ -51,16 +63,22 @@ fn announce(address: SocketAddr, user_data_dir: Option<&Path>) {
 }
 
 #[cfg(unix)]
-async fn serve_pipe(server: &ProtocolServer) -> Result<()> {
+async fn serve_pipe(
+    server: &ProtocolServer,
+    on_ready: impl FnOnce(LocalCdpConnector),
+) -> Result<()> {
     let (input, output) = take_inherited_pipe_descriptors()?;
     server
-        .serve_pipe(input, output)
+        .serve_pipe_with_local_clients(input, output, on_ready)
         .await
         .context("protocol pipe failed")
 }
 
 #[cfg(not(unix))]
-async fn serve_pipe(_server: &ProtocolServer) -> Result<()> {
+async fn serve_pipe(
+    _server: &ProtocolServer,
+    _on_ready: impl FnOnce(LocalCdpConnector),
+) -> Result<()> {
     anyhow::bail!("--remote-debugging-pipe is only supported on Unix")
 }
 
