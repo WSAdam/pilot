@@ -106,3 +106,6 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Playwright's own tests/mcp suite runs against pilot (PLAYWRIGHT_MCP_EXECUTABLE_PATH) with its pass rate in compat/; needs permission to fetch microsoft/playwright at 018adb570 and run its npm ci
 - [x] Playwright's own tests/mcp suite ran against pilot (compat/playwright-mcp-suite.json): 553 passed, 124 failed, 153 skipped; 76 failures are harness causes (test-mcp server, browser-type lookup, bundled Chromium), 48 are candidates for pilot gaps
 - [ ] The 48 candidate failures in compat/playwright-mcp-suite.json are triaged: each is a pilot gap (fixed with a conformance test) or a legitimate Chrome-only difference (noted)
+- [x] A server that ends a close-delimited response (no Content-Length) by closing TCP without a TLS close_notify fails the navigation with curl error 56 (Craigslist's 302); Chrome treats the response as complete
+- [x] pilot's TLS ClientHello is Chrome's (JA4 t13d1516h2_8daaf6152771_d8a2da3f94cd, GREASE, shuffled extensions, brotli certificate compression, ALPS, ECH GREASE); libcurl's own hello read as a script
+- [ ] pilot's HTTP/2 connection preface matches Chrome's (SETTINGS 1:65536;2:0;4:6291456;6:262144, WINDOW_UPDATE 15663105, pseudo-headers m,a,s,p), which needs a vendored libcurl
