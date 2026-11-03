@@ -110,4 +110,6 @@ Command: `node bench/bench.mjs --bin target/release/pilot --runs 10 --contexts 2
 | The same read again, no change in between | | under 0.1 ms |
 | `click` on a button added just before | (times out under `OnDemand`) | 57.7 ms |
 
+Budgets: `bench/budgets.json` holds a ceiling for each median, about twice today's values; `cd bench && npm run gate` checks the newest result against them and exits 1 if any is over.
+
 `click` and `fill` are slower because `Live` rebuilds the whole layout after a hover or focus change, so Playwright's mouse sequence can lay the page out more than once per click. Narrowing what counts as stale is M5 work.

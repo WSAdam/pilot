@@ -1,0 +1,17 @@
+{
+  "note": "Medians from bench.mjs must stay at or under these. They are about twice the 2026-11-03 medians on an Apple-silicon laptop, to absorb machine noise; tighten them when the bench runs on fixed CI hardware.",
+  "budgets": {
+    "startup.readyMs": 60,
+    "startup.firstSnapshotFromSpawnMs": 270,
+    "startup.closeMs": 20,
+    "warm.gotoMs": 20,
+    "warm.snapshotMs": 110,
+    "warm.clickMs": 110,
+    "warm.fillMs": 20,
+    "memory.oneContextRssMiB": 180,
+    "memory.perExtraContextMiB": 23,
+    "memory.allContextsRssMiB": 720,
+    "geometry.readAfterMutationMs": 8,
+    "geometry.lateClickMs": 120
+  }
+}

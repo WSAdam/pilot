@@ -50,8 +50,8 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 
 ## M5: Fast & lean
 - [ ] V8 startup snapshot cuts pilot CDP-ready time, measured before and after in bench/
-- [ ] Screencast is throttled or paused when no window is watching
-- [ ] bench/ thresholds gate CDP-ready time, RSS per context, MCP snapshot latency and 25 parallel contexts
+- [x] Screencast is throttled or paused when no window is watching
+- [x] bench/ thresholds gate CDP-ready time, RSS per context, MCP snapshot latency and 25 parallel contexts
 
 ## M6: v1 compatibility suite and the open-web ladder
 - [ ] compat/v1-suite.md defines the v1 compatibility suite
