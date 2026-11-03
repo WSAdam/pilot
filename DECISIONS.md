@@ -61,3 +61,8 @@ Date: 2026-11-02
 Under `LayoutPolicy::Live`, a geometry read or input event after any DOM change (including hover and focus state) rebuilds the page layout, as Chromium does. `moli serve --layout` still uses `OnDemand`, which keeps upstream's frozen snapshot until a screenshot or paint.
 Why: upstream deliberately freezes geometry until the next paint, and 21 upstream tests assert it. Upstream's own fix (PR #2084) changes `OnDemand` and fails those tests. An opt-in policy gives Playwright live geometry while leaving every upstream test and file it guards unchanged, so upstream merges stay clean. Cost: a click can re-lay out once per mouse event, measured in bench/ and owned by M5.
 Date: 2026-11-02
+
+## pilot emulates phones at the device width, without viewport-meta layout
+Under pilot's Live layout, `Emulation.setDeviceMetricsOverride` with `mobile=true` lays the page out at the requested device width and pixel ratio. `<meta name=viewport>` is not processed yet, so a page without one is laid out at the device width instead of Chrome's 980px-and-scale.
+Why: Playwright MCP's `--device` and Playwright's phone descriptors failed outright, since Moli rejects mobile emulation until it has viewport-meta layout. Responsive pages (`width=device-width`, nearly all modern sites) come out the same as in Chrome. Asked through Shepherd; the default was taken.
+Date: 2026-11-03

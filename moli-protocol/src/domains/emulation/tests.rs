@@ -20,6 +20,7 @@ use tokio::{
 };
 
 mod device_geometry;
+mod live_mobile;
 mod native_navigator;
 mod scrollbars;
 

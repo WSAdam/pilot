@@ -1038,7 +1038,7 @@ fn start_device_metrics_override_command(
     conn: &mut CdpConnection,
     cmd: &Cmd<'_>,
 ) -> EmulationCommandTaskStep {
-    let params: params::SetDeviceMetricsOverrideParams = match cmd.get_params() {
+    let mut params: params::SetDeviceMetricsOverrideParams = match cmd.get_params() {
         Ok(Some(params)) => params,
         _ => {
             return EmulationCommandTaskStep::Complete(CommandOutputPlan::error(
@@ -1047,6 +1047,12 @@ fn start_device_metrics_override_command(
             ));
         }
     };
+    // pilot: under Live layout, mobile emulation lays pages out at the device
+    // width (no viewport-meta processing yet), so Playwright MCP's --device
+    // works. OnDemand keeps rejecting it.
+    if conn.layout_policy().rebuilds_stale_layout() {
+        params.mobile = false;
+    }
     let owner = CommandOwnerScope::capture(conn, cmd.session_id);
     let previous = conn.target_session_owner_emulated_device_metrics_for_owner(&owner);
     let mut base = conn
