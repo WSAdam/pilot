@@ -32,7 +32,7 @@ await page.goto("https://example.com");
 await browser.close();
 ```
 
-Leave out `headless: true` to watch the page in pilot's window. `pilot/deno/launch_test.ts` checks this works (`cd pilot/deno && deno task test`).
+Playwright launches headless by default; pass `headless: false` to watch the page in pilot's window. `pilot/deno/launch_test.ts` checks this works (`cd pilot/deno && deno task test`).
 
 ## The window
 
