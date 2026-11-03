@@ -115,7 +115,12 @@ async def run_dom_input_group(state: SmokeState) -> None:
         ("upload.moli_unknown", b"\x89PNG\r\n\x1a\n", ""),
         ("upload_without_extension", b"%PDF-1.7\n", ""),
     ]:
-        selected_file = temp_dir / name
+        # pilot: a directory of their own, because on a case-insensitive file
+        # system (macOS by default) upload.TXT would overwrite the upload.txt
+        # the file chooser check below reads.
+        mime_dir = temp_dir / "mime-types"
+        mime_dir.mkdir(exist_ok=True)
+        selected_file = mime_dir / name
         selected_file.write_bytes(contents)
         await state.cdp.send(
             "DOM.setFileInputFiles",

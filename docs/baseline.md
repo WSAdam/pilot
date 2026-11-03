@@ -130,3 +130,7 @@ Release pilot, Playwright 1.65, `bench/fixtures/agent-page.html`, median of 5:
 
 A new V8 context is already cheap, so a V8 startup snapshot would save little. The first snapshot on each page is the cost: Playwright's injected script (about 300 KB) is compiled again in every page. Caching its compiled code across pages is the M5 lead.
 
+### Smoke on macOS (2026-11-03)
+
+moli-cdp-smoke is 54/54 on macOS. The `dom-input` failure recorded above was the test, not the browser: on macOS's case-insensitive file system, its `upload.TXT` overwrote the `upload.txt` that the file chooser check reads (FORK.md).
+
