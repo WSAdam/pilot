@@ -80,6 +80,32 @@ test('form controls inside a label can be checked, chosen and filled', { timeout
   }
 });
 
+// 2026-11-03: a mouse press on non-focusable content focused the body and
+// scrolled it into view, jumping a long page to the bottom; a raw mouse drag
+// (MCP's browser_mouse_drag_xy) then missed its drop target.
+test('a mouse press keeps the scroll position and a raw mouse drag drops on its target', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/sweep.html`);
+    const heading = await page.getByRole('heading', { name: 'Sweep' }).boundingBox();
+    await page.mouse.move(heading.x + 5, heading.y + 5);
+    await page.mouse.down();
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => scrollY), 0, 'a press on text does not scroll');
+
+    const source = await page.locator('#source').boundingBox();
+    const target = await page.locator('#target').boundingBox();
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
+    await page.mouse.up();
+    assert.equal(await page.locator('#out').textContent(), 'dropped dragged');
+  } finally {
+    await browser.close();
+  }
+});
+
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {

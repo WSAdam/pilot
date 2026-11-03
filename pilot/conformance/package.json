@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Launches pilot exactly as Playwright and Playwright MCP launch Chromium, and drives it end to end",
   "scripts": {
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1",
+    "sweep": "node sweep/mcp-tools.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

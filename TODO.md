@@ -86,3 +86,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Under Live layout a Playwright click re-lays out the page only when a hover or focus change affects some style, bringing the bench click median back near the 45 ms Moli baseline (M5)
 - [x] A headed pilot with its window open never exits after Browser.close: the window controller was cancelled with the browser runtime before it could close the window
 - [x] Set PILOT_NO_WINDOW=1 to run pilot without its window when --headless is absent (automated runs on a desktop); document it where users will find it
+- [x] A mouse press on non-focusable content (text, a div) scrolls a long page to the bottom, because focus falls back to the body and the body is scrolled into view; Chrome does not scroll
+- [x] Playwright MCP tool sweep (pilot/conformance npm run sweep) passes every tool in compat/mcp-tools.json, including browser_mouse_drag_xy

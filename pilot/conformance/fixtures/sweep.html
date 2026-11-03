@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <title>sweep</title>
+  <style>
+    #hover, #source, #target { display: inline-block; padding: 12px; margin: 4px; border: 1px solid #888; }
+    @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } }
+  </style>
+</head>
+<body>
+  <h1>Sweep</h1>
+  <p id="out">idle</p>
+  <form onsubmit="event.preventDefault()">
+    <label>Name <input id="name"></label>
+    <label>Color <select id="color"><option>red</option><option>green</option></select></label>
+    <label><input type="checkbox" id="agree"> Agree</label>
+    <label>File <input type="file" id="file"></label>
+  </form>
+  <button id="hi">Say hi</button>
+  <button id="confirm">Confirm</button>
+  <button id="log">Log and fetch</button>
+  <a href="/greeting.html" target="_blank">Open greeting</a>
+  <div id="hover">Hover target</div>
+  <div id="source" draggable="true">Drag me</div>
+  <div id="target">Drop here</div>
+  <ul aria-label="Fruits"><li>Apple</li><li>Banana</li></ul>
+  <div style="height: 3000px"></div>
+  <script>
+    const out = document.getElementById('out');
+    const say = (text) => { out.textContent = text; };
+    document.getElementById('hi').addEventListener('click', (event) => say(event.detail === 2 ? 'double hi' : 'hi'));
+    document.getElementById('hi').addEventListener('dblclick', () => say('double hi'));
+    document.getElementById('confirm').addEventListener('click', () => say(confirm('ok?') ? 'confirmed' : 'dismissed'));
+    document.getElementById('log').addEventListener('click', () => {
+      console.log('sweep log');
+      fetch('/greeting.html').then(() => say('fetched'));
+    });
+    document.getElementById('hover').addEventListener('mouseenter', () => say('hovered'));
+    document.getElementById('file').addEventListener('change', (event) => say(`file ${event.target.files[0]?.name}`));
+    document.getElementById('source').addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', 'dragged'));
+    const target = document.getElementById('target');
+    target.addEventListener('dragover', (event) => event.preventDefault());
+    target.addEventListener('drop', (event) => { event.preventDefault(); say(`dropped ${event.dataTransfer.getData('text/plain')}`); });
+    document.addEventListener('keydown', (event) => { if (event.target === document.body) say(`key ${event.key}`); });
+    let pressed = 0;
+    document.addEventListener('mousedown', () => { pressed += 1; });
+    document.addEventListener('mouseup', () => { if (pressed) say(`down-up ${pressed}`); });
+  </script>
+</body>
+</html>
