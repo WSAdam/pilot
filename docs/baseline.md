@@ -113,3 +113,20 @@ Command: `node bench/bench.mjs --bin target/release/pilot --runs 10 --contexts 2
 Budgets: `bench/budgets.json` holds a ceiling for each median, about twice today's values; `cd bench && npm run gate` checks the newest result against them and exits 1 if any is over.
 
 `click` and `fill` are slower because `Live` rebuilds the whole layout after a hover or focus change, so Playwright's mouse sequence can lay the page out more than once per click. Narrowing what counts as stale is M5 work.
+
+### Where startup time goes (2026-11-03)
+
+Release pilot, Playwright 1.65, `bench/fixtures/agent-page.html`, median of 5:
+
+| Step | Time |
+|---|---|
+| `chromium.launch` (spawn until CDP answers, as Playwright sees it) | 51 ms |
+| `newContext` | 18 ms |
+| `newPage` | 6 ms |
+| `setContent` | 6 ms |
+| First AI snapshot on the page | 70 ms |
+| Second AI snapshot on the same page | 17 ms |
+| First AI snapshot on a second new page | 59 ms |
+
+A new V8 context is already cheap, so a V8 startup snapshot would save little. The first snapshot on each page is the cost: Playwright's injected script (about 300 KB) is compiled again in every page. Caching its compiled code across pages is the M5 lead.
+
