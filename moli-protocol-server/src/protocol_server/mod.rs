@@ -32,6 +32,7 @@ use tracing::info;
 
 pub use crate::config::ServerConfig;
 pub use instance_control::{BrowserInstanceControl, InstanceCommand};
+pub use local_client::{LocalCdpClient, LocalCdpConnector, LocalCdpSender};
 
 mod cdp;
 mod cdp_agent_host;
@@ -41,6 +42,7 @@ mod cdp_pipe;
 mod cdp_socket;
 mod instance_control;
 mod instance_shutdown;
+mod local_client;
 mod protocol_local_executor;
 mod tcp_options;
 mod trailing_slash;
@@ -158,6 +160,18 @@ impl ProtocolServer {
         control: BrowserInstanceControl,
         on_bound: impl FnOnce(std::net::SocketAddr),
     ) -> Result<()> {
+        self.serve_with_control_bound_hook_and_local_clients(control, on_bound, |_| {})
+            .await
+    }
+
+    /// pilot: like [`Self::serve_with_control_and_bound_hook`], and hands
+    /// `on_ready` a connector for in-process CDP clients of this browser.
+    pub async fn serve_with_control_bound_hook_and_local_clients(
+        &self,
+        control: BrowserInstanceControl,
+        on_bound: impl FnOnce(std::net::SocketAddr),
+        on_ready: impl FnOnce(LocalCdpConnector),
+    ) -> Result<()> {
         let listener = TcpListener::bind(self.config.bind_target())
             .await
             .with_context(|| {
@@ -181,6 +195,10 @@ impl ProtocolServer {
             self.config.screencast_interval_ms,
             control,
         )?;
+        on_ready(LocalCdpConnector::new(
+            app_state.cdp_owner_registry.clone(),
+            app_state.control.clone(),
+        ));
 
         serve_listener(listener, app_state).await
     }

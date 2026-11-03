@@ -12,4 +12,7 @@ pub mod protocol_server;
 pub mod runtime_thread_budget;
 
 pub use config::ServerConfig;
-pub use protocol_server::{BrowserInstanceControl, InstanceCommand, ProtocolServer};
+pub use protocol_server::{
+    BrowserInstanceControl, InstanceCommand, LocalCdpClient, LocalCdpConnector, LocalCdpSender,
+    ProtocolServer,
+};

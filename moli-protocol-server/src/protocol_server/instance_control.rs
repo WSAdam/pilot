@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
 use super::instance_shutdown::{InstanceConnection, InstanceShutdown};
 
 /// An operation on the entire running browser instance, independent of a
@@ -16,6 +21,8 @@ pub enum InstanceCommand {
 #[derive(Clone, Debug, Default)]
 pub struct BrowserInstanceControl {
     shutdown: InstanceShutdown,
+    /// pilot: commands received from pipe and websocket clients.
+    agent_commands: Arc<AtomicU64>,
 }
 
 impl BrowserInstanceControl {
@@ -42,5 +49,15 @@ impl BrowserInstanceControl {
 
     pub(super) async fn drained(&self) {
         self.shutdown.drained().await;
+    }
+
+    /// pilot: counts CDP commands received over the pipe or a websocket, so
+    /// an in-process watcher can tell when the agent is active.
+    pub fn agent_command_count(&self) -> u64 {
+        self.agent_commands.load(Ordering::Relaxed)
+    }
+
+    pub(super) fn record_agent_command(&self) {
+        self.agent_commands.fetch_add(1, Ordering::Relaxed);
     }
 }

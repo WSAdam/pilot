@@ -57,6 +57,7 @@ pub(super) async fn run_cdp_frontend_socket(
                 match message {
                     Message::Text(text) => {
                         let command = ParsedCdpCommand::parse_str(text.to_string());
+                        control.record_agent_command();
                         if !endpoint.command(frontend_id, command).await {
                             break CdpSocketExit::TransportClose;
                         }

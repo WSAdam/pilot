@@ -13,7 +13,10 @@ use tokio::io::{
     ReadBuf,
 };
 
-use super::{AppState, BrowserInstanceControl, InstanceCommand, ProtocolServer, SHUTDOWN_BUDGET};
+use super::{
+    AppState, BrowserInstanceControl, InstanceCommand, LocalCdpConnector, ProtocolServer,
+    SHUTDOWN_BUDGET,
+};
 use crate::{cdp_frontend::CdpFrontendEndpoint, cdp_writer::spawn_socket_sink};
 
 /// Largest inbound CDP message, excluding its NUL terminator. This is the
@@ -79,17 +82,41 @@ impl ProtocolServer {
     /// `output`. No socket is bound. The caller hands over ownership of both
     /// descriptors, which are closed when the session ends.
     pub async fn serve_pipe(&self, input: OwnedFd, output: OwnedFd) -> Result<()> {
-        self.serve_pipe_io(
+        self.serve_pipe_with_local_clients(input, output, |_| {})
+            .await
+    }
+
+    /// pilot: like [`Self::serve_pipe`], and hands `on_ready` a connector for
+    /// in-process CDP clients of this browser.
+    pub async fn serve_pipe_with_local_clients(
+        &self,
+        input: OwnedFd,
+        output: OwnedFd,
+        on_ready: impl FnOnce(LocalCdpConnector),
+    ) -> Result<()> {
+        self.serve_pipe_io_with_local_clients(
             PipeFd::new(std::fs::File::from(input))?,
             PipeFd::new(std::fs::File::from(output))?,
+            on_ready,
         )
         .await
     }
 
+    #[cfg(test)]
     async fn serve_pipe_io(
         &self,
         input: impl AsyncRead + Unpin,
         output: impl AsyncWrite + Unpin + Send + 'static,
+    ) -> Result<()> {
+        self.serve_pipe_io_with_local_clients(input, output, |_| {})
+            .await
+    }
+
+    async fn serve_pipe_io_with_local_clients(
+        &self,
+        input: impl AsyncRead + Unpin,
+        output: impl AsyncWrite + Unpin + Send + 'static,
+        on_ready: impl FnOnce(LocalCdpConnector),
     ) -> Result<()> {
         let control = BrowserInstanceControl::new();
         let state = AppState::new_with_storage_partition_and_runtime_config(
@@ -100,6 +127,10 @@ impl ProtocolServer {
             control.clone(),
         )?;
         let endpoint = state.cdp_owner_registry.shared_owner()?;
+        on_ready(LocalCdpConnector::new(
+            state.cdp_owner_registry.clone(),
+            control.clone(),
+        ));
         let result = run_pipe(input, output, endpoint, control.clone()).await;
         control.request(InstanceCommand::Shutdown);
         // Like `serve_listener`: stop the CDP owner, then flush storage and
@@ -155,6 +186,7 @@ async fn run_pipe(
                 break;
             }
             let text = String::from_utf8(frame.clone()).context("CDP pipe message is not UTF-8")?;
+            control.record_agent_command();
             if !endpoint
                 .command(frontend_id, ParsedCdpCommand::parse_str(text))
                 .await
