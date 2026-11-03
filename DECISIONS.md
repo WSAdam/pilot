@@ -18,8 +18,8 @@ Why: an engine that isn't Chromium can't promise the whole open web at v1.
 Date: 2026-11-02
 
 ## Headful mode is a watch-the-agent window, built as an extra CDP client
-pilot-window attaches to the in-process protocol server over loopback CDP. It shows Page.startScreencast frames and forwards human input through Input.*. It is not a full daily-driver browser UI.
-Why: this needs no changes to Moli's core; multiple CDP clients are already supported upstream, and upstream treats "no GUI" as a deliberate boundary.
+pilot-window is a second browser-level CDP client of the in-process protocol server, connected over channels (`LocalCdpConnector`), not a socket. It shows Page.startScreencast frames and forwards human input through Input.*. It is not a full daily-driver browser UI.
+Why: multiple CDP clients are already supported upstream, and upstream treats "no GUI" as a deliberate boundary. The first version of this entry said loopback CDP with no core changes, but MCP's default launch uses the pipe and has no listener, so either transport needs a small core hook; channels open no port and copy nothing through a socket. Changed 2026-11-03 after a Shepherd question (default taken).
 Date: 2026-11-02
 
 ## pilot always runs with real layout

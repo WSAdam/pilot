@@ -1,0 +1,16 @@
+[package]
+name = "pilot-window"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish = false
+description = "pilot's headful window: watch the page the agent drives, and take over its input"
+
+[dependencies]
+anyhow = "1.0.100"
+base64 = "0.22"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+serde_json = "1.0.145"
+
+[lints]
+workspace = true
