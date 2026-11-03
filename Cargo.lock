@@ -4566,7 +4566,12 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "image",
+ "moli-core",
+ "moli-fetch",
+ "moli-protocol-server",
  "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

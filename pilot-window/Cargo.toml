@@ -10,7 +10,15 @@ description = "pilot's headful window: watch the page the agent drives, and take
 anyhow = "1.0.100"
 base64 = "0.22"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+moli-protocol-server = { path = "../moli-protocol-server" }
 serde_json = "1.0.145"
+tokio = { version = "1.51.0", features = ["macros", "sync", "time"] }
+tracing = "0.1.41"
+
+[dev-dependencies]
+moli-core = { path = "../moli-core" }
+moli-fetch = { path = "../moli-fetch" }
+tokio = { version = "1.51.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]
 workspace = true
