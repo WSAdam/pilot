@@ -19,6 +19,21 @@ From Playwright directly:
 const browser = await chromium.launch({ executablePath: '/path/to/target/release/pilot' });
 ```
 
+## From Deno
+
+Playwright runs under Deno and launches pilot the same way:
+
+```ts
+import { chromium } from "npm:playwright-core@1.65.0-alpha-2026-10-30";
+
+const browser = await chromium.launch({ executablePath: "/path/to/target/release/pilot" });
+const page = await browser.newPage();
+await page.goto("https://example.com");
+await browser.close();
+```
+
+Leave out `headless: true` to watch the page in pilot's window. `pilot/deno/launch_test.ts` checks this works (`cd pilot/deno && deno task test`).
+
 ## The window
 
 Without `--headless`, pilot opens a window that shows the page the agent is driving:

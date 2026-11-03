@@ -94,3 +94,4 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Mobile emulation processes <meta name=viewport>, so a page without one lays out at 980px and scales down like Chrome
 - [x] f1/f2-prefixed snapshot refs after a page navigates are Playwright 1.65's own numbering (it gives the main frame a new seq on each new-document navigation), not a pilot bug
 - [ ] "chromium.launch drives a page with pilot's window open" failed once in a full conformance run on 2026-11-03 (message not kept); it passed 0-failures in 12 loops and 2 full runs afterwards; find the race if it recurs
+- [x] Correction to the Deno line above: chromium.launch({ executablePath: pilot }) works from Deno (launch, newPage, goto, close); the "hang" was a probe waiting for an <h1> that example.com no longer has. pilot/deno/launch_test.ts (deno task test) guards it, so no Deno helper module is needed
