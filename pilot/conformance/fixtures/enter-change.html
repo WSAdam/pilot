@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><title>enter change</title></head>
+<body>
+  <!-- TodoMVC's vanilla app adds a todo on the input's change event. -->
+  <input id="new" placeholder="What needs to be done?">
+  <ul id="list"></ul>
+  <script>
+    const input = document.getElementById('new');
+    input.addEventListener('change', () => {
+      const item = document.createElement('li');
+      item.textContent = input.value;
+      document.getElementById('list').append(item);
+      input.value = '';
+    });
+  </script>
+</body>
+</html>

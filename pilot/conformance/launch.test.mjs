@@ -139,6 +139,24 @@ test('images load, take their size, and links placed over them can be clicked', 
   }
 });
 
+// 2026-11-03: Enter in a text input fired no change event, so TodoMVC's
+// vanilla app (which adds on change) never added a todo.
+test('Enter in a text input commits it with a change event', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/enter-change.html`);
+    const input = page.getByPlaceholder('What needs to be done?');
+    for (const text of ['Buy milk', 'Walk the dog']) {
+      await input.fill(text);
+      await input.press('Enter');
+    }
+    assert.deepEqual(await page.locator('#list li').allTextContents(), ['Buy milk', 'Walk the dog']);
+  } finally {
+    await browser.close();
+  }
+});
+
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {

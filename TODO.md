@@ -97,3 +97,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Correction to the Deno line above: chromium.launch({ executablePath: pilot }) works from Deno (launch, newPage, goto, close); the "hang" was a probe waiting for an <h1> that example.com no longer has. pilot/deno/launch_test.ts (deno task test) guards it, so no Deno helper module is needed
 - [x] pilot fetched no images or web fonts (Moli's default), so images laid out at 0x0 and links positioned against them landed off-screen (weather.gov header); pilot now passes --image --font
 - [ ] Open-web corpus (pilot/conformance npm run open-web, compat/open-web.json): sites that block pilot as a bot (Stack Overflow, Etsy, Reuters, Amazon, IMDb, Craigslist) load like they do in Chrome
+- [x] Pressing Enter in a text input does not fire change, so apps that commit on change (TodoMVC's vanilla ES6 app, many forms) ignore Enter; Chrome fires change, then submits implicitly
+- [x] TodoMVC flows (pilot/conformance npm run todomvc, compat/todomvc.json) pass in every hosted framework example

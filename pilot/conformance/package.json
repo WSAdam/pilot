@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test --test-concurrency=1",
     "sweep": "node sweep/mcp-tools.mjs",
-    "open-web": "node sweep/open-web.mjs"
+    "open-web": "node sweep/open-web.mjs",
+    "todomvc": "node sweep/todomvc.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

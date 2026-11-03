@@ -1,0 +1,437 @@
+{
+  "date": "2026-11-03",
+  "pilot": "/Users/adam/Programming/Custom-browser/target/release/pilot",
+  "passed": 11,
+  "total": 11,
+  "results": [
+    {
+      "app": "react",
+      "url": "https://todomvc.com/examples/react/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "vue",
+      "url": "https://todomvc.com/examples/vue/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "angular",
+      "url": "https://todomvc.com/examples/angular/dist/browser/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "svelte",
+      "url": "https://todomvc.com/examples/svelte/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "preact",
+      "url": "https://todomvc.com/examples/preact/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "lit",
+      "url": "https://todomvc.com/examples/lit/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "ember",
+      "url": "https://todomvc.com/examples/emberjs/todomvc/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "backbone",
+      "url": "https://todomvc.com/examples/backbone/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "jquery",
+      "url": "https://todomvc.com/examples/jquery/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "vanilla es6",
+      "url": "https://todomvc.com/examples/javascript-es6/dist/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "app": "knockout",
+      "url": "https://todomvc.com/examples/knockoutjs/",
+      "ok": true,
+      "steps": [
+        {
+          "step": "load",
+          "ok": true
+        },
+        {
+          "step": "add three todos",
+          "ok": true
+        },
+        {
+          "step": "complete one",
+          "ok": true
+        },
+        {
+          "step": "filter Active",
+          "ok": true
+        },
+        {
+          "step": "filter Completed",
+          "ok": true
+        },
+        {
+          "step": "filter All",
+          "ok": true
+        },
+        {
+          "step": "clear completed",
+          "ok": true
+        },
+        {
+          "step": "edit by double-click",
+          "ok": true
+        }
+      ]
+    }
+  ]
+}
