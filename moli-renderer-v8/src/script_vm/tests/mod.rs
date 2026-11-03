@@ -2407,4 +2407,5 @@ mod hyperlink_audit_owner;
 mod fetch_referrer;
 mod live_geometry_after_mutation;
 mod live_geometry_after_scroll;
+mod mouse_focus_keeps_scroll;
 mod sqlite_web_storage;

@@ -1239,7 +1239,12 @@ pub(crate) fn perform_mouse_focus_default_action(
             (should_focus, parent)
         };
         if should_focus {
-            focus_element(scope, runtime_ptr, handle);
+            // pilot: like Blink, mouse focus never scrolls; the pressed
+            // point is already on screen, and scrolling a tall element (or
+            // the body) "into view" jumped the page.
+            if let Err(error) = focus_element_with_options(scope, runtime_ptr, handle, true) {
+                tracing::warn!(?handle, %error, "failed to focus the pressed element");
+            }
             return;
         }
         candidate = parent;
