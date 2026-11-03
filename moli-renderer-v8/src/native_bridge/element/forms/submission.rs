@@ -46,6 +46,20 @@ pub(crate) fn perform_implicit_submission_from_control(
     {
         return Some(RendererInputDispatchOutcome::default());
     }
+    // pilot: like Blink, Enter finishes editing as losing focus does: a
+    // changed value fires change first, with or without a form to submit.
+    crate::native_bridge::element::focus::dispatch_pending_text_control_change_if_needed(
+        scope,
+        runtime_ptr,
+        control,
+    );
+    // change listeners can also remove the control or change its form.
+    let runtime = unsafe { &*runtime_ptr };
+    if !runtime.dom_host().is_connected(control)
+        || !input_blocks_implicit_submission(runtime, control)
+    {
+        return Some(RendererInputDispatchOutcome::default());
+    }
     Some(perform_implicit_form_submission(
         scope,
         runtime_ptr,

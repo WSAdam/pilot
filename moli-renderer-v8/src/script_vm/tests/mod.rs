@@ -2404,6 +2404,7 @@ mod xml_serializer_receivers;
 
 mod hyperlink_audit_owner;
 
+mod enter_commits_text_input;
 mod fetch_referrer;
 mod live_geometry_after_mutation;
 mod live_geometry_after_scroll;

@@ -341,7 +341,7 @@ fn wrap_handle_value<'s>(
     Some(wrapped.into())
 }
 
-fn dispatch_pending_text_control_change_if_needed(
+pub(crate) fn dispatch_pending_text_control_change_if_needed(
     scope: &mut v8::PinScope<'_, '_>,
     runtime_ptr: *mut JsContextHost,
     handle: DomHandle,
