@@ -26,7 +26,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Playwright MCP drives pilot in default, --isolated and --cdp-endpoint modes: navigate, snapshot, click, type, screenshot (pilot_mcp group)
 
 ## M2: Live geometry
-- [ ] A node inserted after the first geometry read gets a real box, so Playwright check/hover/selectOption succeed (#1080 #1289 #2069 fixtures, pilot-core live-layout patch)
+- [x] A node inserted after the first geometry read gets a real box, so Playwright check/hover/selectOption succeed (#1080 #1289 #2069 fixtures, pilot-core live-layout patch)
 - [x] Geometry query timing benchmark in bench/ guards against #1617-style slowdowns
 
 ## M3: Watch-the-agent window (pilot-window crate)
@@ -81,6 +81,6 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Scoped Rust baseline (nextest for moli and moli-protocol-server) and the moli-cdp-smoke result recorded in docs/baseline.md
 - [x] Moli-only baseline benchmark (startup, warm actions, RSS for 1 and 25 contexts) in bench/results/2026-11-02-moli-baseline.json
 - [ ] Chromium comparison for the smoke suite and benchmarks, run with --use-mock-keychain --password-store=basic so macOS never shows a Keychain prompt
-- [ ] Playwright cannot click, check or fill a form control inside an inline <label>: hit testing returns the label above the control, so "<label> intercepts pointer events" (port upstream PR #395)
+- [x] Playwright cannot click, check or fill a form control inside an inline <label>: hit testing returns the label above the control, so "<label> intercepts pointer events" (port upstream PR #395)
 - [x] Playwright cannot click an element below the fold: after a viewport scroll (script or DOM.scrollIntoViewIfNeeded), getBoundingClientRect and DOM.getContentQuads keep the pre-scroll position, so Playwright reports "element is outside of the viewport"
 - [ ] Under Live layout a Playwright click re-lays out the page only when a hover or focus change affects some style, bringing the bench click median back near the 45 ms Moli baseline (M5)

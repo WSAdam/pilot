@@ -54,6 +54,32 @@ test('a button below the fold is scrolled into view and clicked', { timeout: 60_
   }
 });
 
+// 2026-11-02: hit testing put an inline <label> above the form control inside
+// it, so Playwright's click, check and fill failed with "<label> intercepts
+// pointer events" (upstream #385).
+test('form controls inside a label can be checked, chosen and filled', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    const out = page.locator('#out');
+    await page.goto(`${fixture.baseUrl}/labelled-controls.html`);
+    await page.getByRole('checkbox', { name: 'I accept the terms' }).check({ timeout: 5_000 });
+    assert.equal(await out.textContent(), 'terms true');
+    await page.getByRole('radio', { name: 'Pro plan' }).check({ timeout: 5_000 });
+    assert.equal(await out.textContent(), 'plan pro');
+    await page.getByRole('textbox', { name: 'Email' }).click({ timeout: 5_000 });
+    await page.keyboard.type('a@b.co');
+    assert.equal(await out.textContent(), 'email a@b.co');
+
+    await page.goto(`${fixture.baseUrl}/late-controls.html`);
+    await page.getByRole('button', { name: 'Add controls' }).click();
+    await page.getByRole('checkbox', { name: 'Agree' }).check({ timeout: 5_000 });
+    assert.equal(await out.textContent(), 'agree true');
+  } finally {
+    await browser.close();
+  }
+});
+
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {
