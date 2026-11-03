@@ -8,7 +8,7 @@
     {
       "tool": "browser_navigate",
       "ok": true,
-      "ms": 2169
+      "ms": 1996
     },
     {
       "tool": "browser_snapshot",
@@ -18,187 +18,187 @@
     {
       "tool": "browser_click",
       "ok": true,
-      "ms": 1150
+      "ms": 1154
     },
     {
       "tool": "browser_click (double)",
       "ok": true,
-      "ms": 1155
+      "ms": 1183
     },
     {
       "tool": "browser_type",
       "ok": true,
-      "ms": 596
+      "ms": 614
     },
     {
       "tool": "browser_fill_form",
       "ok": true,
-      "ms": 646
+      "ms": 667
     },
     {
       "tool": "browser_select_option",
       "ok": true,
-      "ms": 593
+      "ms": 626
     },
     {
       "tool": "browser_hover",
       "ok": true,
-      "ms": 642
+      "ms": 659
     },
     {
       "tool": "browser_drag",
       "ok": true,
-      "ms": 1202
+      "ms": 1228
     },
     {
       "tool": "browser_drop",
       "ok": true,
-      "ms": 1165
+      "ms": 1161
     },
     {
       "tool": "browser_press_key",
       "ok": true,
-      "ms": 574
+      "ms": 591
     },
     {
       "tool": "browser_handle_dialog",
       "ok": true,
-      "ms": 1154
+      "ms": 1166
     },
     {
       "tool": "browser_file_upload",
       "ok": true,
-      "ms": 1159
+      "ms": 1190
     },
     {
       "tool": "browser_evaluate",
       "ok": true,
-      "ms": 564
+      "ms": 588
     },
     {
       "tool": "browser_console_messages",
       "ok": true,
-      "ms": 1157
+      "ms": 1180
     },
     {
       "tool": "browser_network_requests",
       "ok": true,
-      "ms": 1665
+      "ms": 1680
     },
     {
       "tool": "browser_network_request",
       "ok": true,
-      "ms": 72
+      "ms": 79
     },
     {
       "tool": "browser_navigate_back",
       "ok": true,
-      "ms": 633
+      "ms": 644
     },
     {
       "tool": "browser_tabs",
       "ok": true,
-      "ms": 121
+      "ms": 148
     },
     {
       "tool": "browser_take_screenshot",
       "ok": true,
-      "ms": 62
+      "ms": 66
     },
     {
       "tool": "browser_take_screenshot (full page)",
       "ok": true,
-      "ms": 92
+      "ms": 97
     },
     {
       "tool": "browser_take_screenshot (element)",
       "ok": true,
-      "ms": 115
+      "ms": 113
     },
     {
       "tool": "browser_resize",
       "ok": true,
-      "ms": 564
+      "ms": 563
     },
     {
       "tool": "browser_emulate_media",
       "ok": true,
-      "ms": 582
+      "ms": 595
     },
     {
       "tool": "browser_wait_for",
       "ok": true,
-      "ms": 69
+      "ms": 83
     },
     {
       "tool": "browser_find",
       "ok": true,
-      "ms": 50
+      "ms": 57
     },
     {
       "tool": "browser_pdf_save",
       "ok": true,
-      "ms": 50
+      "ms": 56
     },
     {
       "tool": "browser_mouse_click_xy",
       "ok": true,
-      "ms": 1599
+      "ms": 1614
     },
     {
       "tool": "browser_mouse_move_xy",
       "ok": true,
-      "ms": 1101
+      "ms": 1111
     },
     {
       "tool": "browser_mouse_down / browser_mouse_up",
       "ok": true,
-      "ms": 1102
+      "ms": 1096
     },
     {
       "tool": "browser_mouse_drag_xy",
       "ok": true,
-      "ms": 2128
+      "ms": 2143
     },
     {
       "tool": "browser_mouse_wheel",
       "ok": true,
-      "ms": 1106
+      "ms": 1113
     },
     {
       "tool": "browser_run_code_unsafe",
       "ok": true,
-      "ms": 566
+      "ms": 583
     },
     {
       "tool": "browser_generate_locator",
       "ok": true,
-      "ms": 84
+      "ms": 101
     },
     {
       "tool": "browser_verify_element_visible",
       "ok": true,
-      "ms": 67
+      "ms": 66
     },
     {
       "tool": "browser_verify_text_visible",
       "ok": true,
-      "ms": 62
+      "ms": 68
     },
     {
       "tool": "browser_verify_list_visible",
       "ok": true,
-      "ms": 78
+      "ms": 66
     },
     {
       "tool": "browser_verify_value",
       "ok": true,
-      "ms": 83
+      "ms": 73
     },
     {
       "tool": "browser_close",
       "ok": true,
-      "ms": 58
+      "ms": 56
     }
   ]
 }

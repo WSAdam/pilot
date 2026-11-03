@@ -120,6 +120,25 @@ test('a phone device descriptor opens a context at the phone\'s size', { timeout
   }
 });
 
+// 2026-11-03: pilot fetched no images, so an image without dimensions laid
+// out at 0x0 and a link floated over it (weather.gov's header) landed
+// off-screen, where Playwright could not click it.
+test('images load, take their size, and links placed over them can be clicked', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`${fixture.baseUrl}/image-layout.html`);
+    assert.deepEqual(
+      await page.locator('#logo').evaluate((img) => [img.naturalWidth, img.getBoundingClientRect().width]),
+      [200, 200],
+    );
+    await page.locator('#overlay').click({ timeout: 5_000 });
+    assert.equal(await page.locator('#out').textContent(), 'overlay clicked');
+  } finally {
+    await browser.close();
+  }
+});
+
 // 2026-11-02: the same frozen layout made selectOption (#1289) and hover
 // (#2069) time out on controls inserted after the first layout.
 test('controls added after the page loaded can be selected and hovered', { timeout: 60_000 }, async () => {

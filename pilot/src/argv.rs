@@ -98,7 +98,11 @@ impl ChromiumLaunch {
     /// this launch. Real layout is always on: Playwright's actionability
     /// checks and coordinate input need real geometry.
     pub fn moli_serve_args(&self) -> Vec<OsString> {
-        let mut args: Vec<OsString> = vec!["moli".into(), "serve".into(), "--layout".into()];
+        // Images and fonts change layout, so agents need them; audio, video
+        // and text tracks stay off to keep pilot lean.
+        let mut args: Vec<OsString> = ["moli", "serve", "--layout", "--image", "--font"]
+            .map(OsString::from)
+            .into();
         if let Some(user_data_dir) = &self.user_data_dir {
             args.push("--profile-dir".into());
             args.push(user_data_dir.into());
@@ -247,6 +251,8 @@ mod tests {
                 "moli",
                 "serve",
                 "--layout",
+                "--image",
+                "--font",
                 "--profile-dir",
                 "{USER_DATA_DIR}",
                 "--remote-debugging-pipe"
@@ -269,6 +275,8 @@ mod tests {
                 "moli",
                 "serve",
                 "--layout",
+                "--image",
+                "--font",
                 "--host",
                 DEFAULT_DEBUGGING_ADDRESS,
                 "--port",

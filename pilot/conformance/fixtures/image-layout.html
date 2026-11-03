@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><title>image layout</title></head>
+<body>
+  <!-- weather.gov's header: an image without dimensions, and an invisible
+       link floated over it with a negative margin. -->
+  <div style="width: 600px; margin: 0 auto">
+    <img id="logo" src="/wide.png" alt="Logo" style="float: left">
+    <a id="overlay" href="#clicked" title="Home" style="float: left; margin-left: -200px; width: 200px; height: 40px; opacity: 0"
+       onclick="document.getElementById('out').textContent = 'overlay clicked'"></a>
+  </div>
+  <p id="out" style="clear: both">idle</p>
+</body>
+</html>

@@ -66,3 +66,8 @@ Date: 2026-11-02
 Under pilot's Live layout, `Emulation.setDeviceMetricsOverride` with `mobile=true` lays the page out at the requested device width and pixel ratio. `<meta name=viewport>` is not processed yet, so a page without one is laid out at the device width instead of Chrome's 980px-and-scale.
 Why: Playwright MCP's `--device` and Playwright's phone descriptors failed outright, since Moli rejects mobile emulation until it has viewport-meta layout. Responsive pages (`width=device-width`, nearly all modern sites) come out the same as in Chrome. Asked through Shepherd; the default was taken.
 Date: 2026-11-03
+
+## pilot fetches images and web fonts, but not audio, video or text tracks
+pilot always passes Moli `--image --font`. Moli's own default fetches no optional resources.
+Why: images without dimensions lay out at 0x0 until they load, and web fonts change text metrics, so without them elements sit where they would not in Chrome and Playwright clicks miss (weather.gov's header link landed off-screen). MCP screenshots also need images. Media is left off to keep pilot lean. Asked through Shepherd; the default was taken.
+Date: 2026-11-03

@@ -26,7 +26,8 @@ export async function startFixtureServer() {
     try {
       const path = new URL(request.url, 'http://fixture').pathname;
       const body = await readFile(join(here, 'fixtures', path));
-      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      const type = path.endsWith('.png') ? 'image/png' : 'text/html; charset=utf-8';
+      response.writeHead(200, { 'content-type': type });
       response.end(body);
     } catch {
       response.writeHead(404);

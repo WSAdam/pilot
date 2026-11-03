@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use moli::config::AppConfig;
 use moli_core::LayoutPolicy;
+#[cfg(test)]
+use moli_core::OptionalResourceFetchMask;
 
 /// Builds the `moli serve` configuration for a Chromium command line.
 ///
@@ -38,5 +40,18 @@ mod tests {
                 "{switches:?}"
             );
         }
+    }
+
+    // 2026-11-03: pilot inherited Moli's fetch-nothing default, so images laid
+    // out at 0x0 (weather.gov's header link landed off-screen) and pages
+    // rendered in fallback fonts. Media stays off to keep pilot lean.
+    #[test]
+    fn pilot_fetches_images_and_fonts_but_not_media() {
+        let launch = ChromiumLaunch::parse(["--headless", "--remote-debugging-pipe"]);
+        let config = moli_config(&launch).unwrap();
+        assert_eq!(
+            config.browser.optional_resource_fetch_mask(),
+            OptionalResourceFetchMask::IMAGE | OptionalResourceFetchMask::FONT
+        );
     }
 }
