@@ -52,6 +52,7 @@ impl CurlTlsConfig {
         easy: &mut Easy2<H>,
         include_client_identity: bool,
     ) -> Result<()> {
+        crate::browser_tls::configure_chrome_client_hello(easy)?;
         easy.ssl_verify_peer(self.verify)
             .context("failed to configure curl TLS peer verification")?;
         easy.ssl_verify_host(self.verify)

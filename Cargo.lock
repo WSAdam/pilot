@@ -3219,6 +3219,7 @@ name = "moli-curl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brotlic-sys",
  "cidr",
  "crossbeam-channel",
  "curl",

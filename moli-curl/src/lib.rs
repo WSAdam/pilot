@@ -1,5 +1,6 @@
 //! Shared libcurl multi scheduler for Moli network requests.
 
+mod browser_tls;
 mod dns_adapter;
 mod host_resolve;
 mod http;

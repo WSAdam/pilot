@@ -71,3 +71,8 @@ Date: 2026-11-03
 pilot always passes Moli `--image --font`. Moli's own default fetches no optional resources.
 Why: images without dimensions lay out at 0x0 until they load, and web fonts change text metrics, so without them elements sit where they would not in Chrome and Playwright clicks miss (weather.gov's header link landed off-screen). MCP screenshots also need images. Media is left off to keep pilot lean. Asked through Shepherd; the default was taken.
 Date: 2026-11-03
+
+## pilot's TLS ClientHello is Chrome's
+Every TLS connection pilot makes offers Chrome's cipher suites, groups, signature algorithms and extensions, with GREASE and per-connection extension shuffling, so its JA4 fingerprint is Chrome's. It also accepts a TCP close without a TLS close_notify at the end of a close-delimited response, as Chrome does.
+Why: sites behind bot defenses fingerprint the ClientHello, and libcurl's own hello identifies pilot as a script. The user chose bot walls as the next focus on 2026-11-03. HTTP/2 SETTINGS and header order are the next layers; they need libcurl changes.
+Date: 2026-11-03
