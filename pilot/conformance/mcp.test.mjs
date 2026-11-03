@@ -91,6 +91,22 @@ test('Playwright MCP clicks a button below the fold', { timeout: 90_000 }, async
   }
 });
 
+// 2026-11-03: MCP's --device emulates a phone with mobile=true, which pilot
+// rejected, so every tool call failed.
+test('Playwright MCP drives pilot emulating a phone (--device)', { timeout: 90_000 }, async () => {
+  const client = await connectMcp(['--executable-path', pilotBin, '--isolated', '--headless', '--device', 'iPhone 15']);
+  try {
+    await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });
+    assert.match(await callTool(client, 'browser_evaluate', { function: '() => innerWidth' }), /393/);
+    const snapshot = await callTool(client, 'browser_snapshot', {});
+    await callTool(client, 'browser_type', { element: 'Name textbox', target: refFor(snapshot, 'textbox "Name"'), text: 'phone' });
+    await callTool(client, 'browser_click', { element: 'Greet button', target: refFor(snapshot, 'button "Greet"') });
+    assert.match(await callTool(client, 'browser_snapshot', {}), /Hello, phone/);
+  } finally {
+    await client.close();
+  }
+});
+
 // pilot holds the profile's SingletonLock like Chromium, so MCP refuses a
 // second browser on it instead of starting one that fights over the profile.
 test('a second Playwright MCP on the same profile reports it in use', { timeout: 90_000 }, async () => {

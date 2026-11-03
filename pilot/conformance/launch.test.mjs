@@ -1,7 +1,7 @@
 // Playwright launches pilot by executable path, exactly as it launches Chromium.
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { chromium } from 'playwright-core';
+import { chromium, devices } from 'playwright-core';
 import { freshProfileDir, noWindowEnv, pilotBin, startFixtureServer } from './support.mjs';
 
 const LAUNCH_TIMEOUT_MS = 30_000;
@@ -101,6 +101,20 @@ test('a mouse press keeps the scroll position and a raw mouse drag drops on its 
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
     await page.mouse.up();
     assert.equal(await page.locator('#out').textContent(), 'dropped dragged');
+  } finally {
+    await browser.close();
+  }
+});
+
+// 2026-11-03: Emulation.setDeviceMetricsOverride rejected mobile=true, so a
+// context with a phone's device descriptor (MCP's --device) could not open.
+test('a phone device descriptor opens a context at the phone\'s size', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const context = await browser.newContext({ ...devices['iPhone 13'] });
+    const page = await context.newPage();
+    await driveGreeting(page);
+    assert.deepEqual(await page.evaluate(() => [innerWidth, innerHeight, devicePixelRatio]), [390, 664, 3]);
   } finally {
     await browser.close();
   }

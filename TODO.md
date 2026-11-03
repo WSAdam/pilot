@@ -88,3 +88,9 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Set PILOT_NO_WINDOW=1 to run pilot without its window when --headless is absent (automated runs on a desktop); document it where users will find it
 - [x] A mouse press on non-focusable content (text, a div) scrolls a long page to the bottom, because focus falls back to the body and the body is scrolled into view; Chrome does not scroll
 - [x] Playwright MCP tool sweep (pilot/conformance npm run sweep) passes every tool in compat/mcp-tools.json, including browser_mouse_drag_xy
+- [ ] chromium.launch({ executablePath: pilot }) from Deno (npm:playwright-core) hangs during launch; from Node it works, and connectOverCDP to pilot --remote-debugging-port works from Deno
+- [ ] A Deno helper module starts pilot on a free port and returns a connected Playwright browser, so a Deno project drives pilot in one call
+- [x] Playwright contexts with a phone device descriptor (MCP --device) open on pilot: Emulation.setDeviceMetricsOverride accepts mobile=true under Live, laying pages out at the device width
+- [ ] Mobile emulation processes <meta name=viewport>, so a page without one lays out at 980px and scales down like Chrome
+- [x] f1/f2-prefixed snapshot refs after a page navigates are Playwright 1.65's own numbering (it gives the main frame a new seq on each new-document navigation), not a pilot bug
+- [ ] "chromium.launch drives a page with pilot's window open" failed once in a full conformance run on 2026-11-03 (message not kept); it passed 0-failures in 12 loops and 2 full runs afterwards; find the race if it recurs
