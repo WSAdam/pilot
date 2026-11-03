@@ -6,6 +6,7 @@ Measurements of how much of the Playwright and Playwright MCP surface, and of th
 |---|---|---|
 | `mcp-tools.json` | Every Playwright MCP tool called once against pilot (headless, `--caps vision,pdf,testing`) on `pilot/conformance/fixtures/sweep.html`, with a check of the page state each tool should leave | `cd pilot/conformance && npm run sweep` |
 | `todomvc.json` | The TodoMVC flows (add, complete, filter, clear, edit) in every framework example hosted on todomvc.com | `cd pilot/conformance && npm run todomvc` |
+| `playwright-mcp-suite.json` | Playwright's own `tests/mcp` suite (Playwright commit 018adb570) run with `--executable-path=pilot`, with failures split into harness causes and candidates for pilot gaps | fetch microsoft/playwright at that commit, `npm ci`, `npm run build`, then `npx playwright test --config tests/mcp/pilot.config.ts` (a project with `mcpBrowser: ''` and `mcpArgs: ['--executable-path=…']`) |
 | `open-web.json` | 30 public sites loaded as an agent would: goto, settle, AI snapshot, click a link | `cd pilot/conformance && npm run open-web` |
 
 The scripts use `target/release/pilot` unless `PILOT_BIN` is set. A failing entry is a lead: when it turns out to be a pilot bug, its fix gets a regression test in `pilot/conformance`.

@@ -1,0 +1,260 @@
+{
+  "date": "2026-11-03",
+  "playwright_commit": "018adb570",
+  "pilot": "target/release/pilot (commit 9f22209bf)",
+  "how": "tests/mcp with a pilot project: mcpBrowser \"\" (no --browser flag; cdpServer tests skip so installed Chrome never launches) and mcpArgs --executable-path=pilot; 4 workers; PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",
+  "totals": {
+    "passed": 553,
+    "failed": 118,
+    "skipped": 153,
+    "timedOut": 6
+  },
+  "harness_failures": {
+    "picks a browser type from --browser": 18,
+    "needs Playwright's bundled Chromium": 10,
+    "test-mcp server (runs Playwright tests, not pilot)": 48
+  },
+  "candidate_failures": 48,
+  "candidates": [
+    {
+      "file": "mcp/cli-isolated.spec.ts",
+      "test": "should not save user data by default (in-memory mode)",
+      "error": "Error: expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "file": "mcp/cli-isolated.spec.ts",
+      "test": "should save user data with --persistent flag",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "file": "mcp/cli-json.spec.ts",
+      "test": "list after open returns one browser entry",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/cli-session.spec.ts",
+      "test": "delete-data",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "file": "mcp/cli-session.spec.ts",
+      "test": "delete-data named session",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "file": "mcp/config.ini.spec.ts",
+      "test": "ini config sets timeouts and console level",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "file": "mcp/config.ini.spec.ts",
+      "test": "ini config sets server and network options",
+      "error": "SyntaxError: \"undefined\" is not valid JSON"
+    },
+    {
+      "file": "mcp/config.spec.ts",
+      "test": "browser_get_config returns merged config from file, env and cli",
+      "error": "Error: expect(received).toBeFalsy()"
+    },
+    {
+      "file": "mcp/config.spec.ts",
+      "test": "browserName",
+      "error": "Test timeout of 30000ms exceeded."
+    },
+    {
+      "file": "mcp/console.spec.ts",
+      "test": "browser_console_messages (page error)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/console.spec.ts",
+      "test": "console log file stores message type and content",
+      "error": "Error: expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "file": "mcp/console.spec.ts",
+      "test": "browser_console_messages all option for page errors",
+      "error": "Error: expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "file": "mcp/cookies.spec.ts",
+      "test": "browser_cookie_list filters by domain",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/cookies.spec.ts",
+      "test": "browser_cookie_delete removes cookie",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/core.spec.ts",
+      "test": "browser_navigate can navigate to file:// URLs allowUnrestrictedFileAccess is true",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/core.spec.ts",
+      "test": "browser_select_option (multiple)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/core.spec.ts",
+      "test": "browser_resize",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/dialogs.spec.ts",
+      "test": "dialog during navigate back",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/files.spec.ts",
+      "test": "clicking on download link emits download",
+      "error": "Error: expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "file": "mcp/files.spec.ts",
+      "test": "file upload is restricted to cwd if no roots are configured",
+      "error": "McpError: MCP error -32000: Connection closed"
+    },
+    {
+      "file": "mcp/files.spec.ts",
+      "test": "file upload follows symlinks when checking workspace roots",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/iframes.spec.ts",
+      "test": "stitched aria frames",
+      "error": "Test timeout of 30000ms exceeded."
+    },
+    {
+      "file": "mcp/init-script.spec.ts",
+      "test": "--init-script option loads and executes script (isolated)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/launch.spec.ts",
+      "test": "executable path",
+      "error": "McpError: MCP error -32000: Connection closed"
+    },
+    {
+      "file": "mcp/launch.spec.ts",
+      "test": "surfaces the missing browser executable path so a version mismatch is diagnosable",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/launch.spec.ts",
+      "test": "should gracefully close the browser once on stdin end",
+      "error": "McpError: MCP error -32000: Connection closed"
+    },
+    {
+      "file": "mcp/mouse.spec.ts",
+      "test": "browser_mouse_click_xy (default)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/network.spec.ts",
+      "test": "browser_network_request shows full request and response details",
+      "error": "Error: expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "file": "mcp/network.spec.ts",
+      "test": "browser_network_request returns individual parts",
+      "error": "Error: expect(received).toBe(expected) // Object.is equality"
+    },
+    {
+      "file": "mcp/recorder.spec.ts",
+      "test": "record actions between start and stop",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/recorder.spec.ts",
+      "test": "restarted recording only contains new actions",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/recorder.spec.ts",
+      "test": "actions performed while not recording are not included",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/recorder.spec.ts",
+      "test": "record actions in python",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/request-blocking.spec.ts",
+      "test": "blocked without allowed allows non-explicitly specified origins (hostname)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/request-blocking.spec.ts",
+      "test": "blocked without allowed allows non-explicitly specified origins (origin)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/roots.spec.ts",
+      "test": "should return relative paths when root is specified",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/screenshot.spec.ts",
+      "test": "browser_take_screenshot (type: webp)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/screenshot.spec.ts",
+      "test": "browser_take_screenshot (viewport without snapshot)",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/secrets.spec.ts",
+      "test": "secrets are redacted in console log artifact",
+      "error": "Error: The outputPath is not allowed outside of the parent directory. Please fix the defined path."
+    },
+    {
+      "file": "mcp/tracing.spec.ts",
+      "test": "check that trace is saved with browser_start_tracing (no output dir)",
+      "error": "Error: ENOENT: no such file or directory, scandir '/private/tmp/claude-503/-Users-adam-Programming-Custom-browser/f3060247-5efe-4814-b248-7e3d12ebe0a7/scratchpa"
+    },
+    {
+      "file": "mcp/webmcp-dynamic.spec.ts",
+      "test": "page tools are listed as MCP tools with disclaimers",
+      "error": "Error: expect(received).toBeTruthy()"
+    },
+    {
+      "file": "mcp/webmcp-dynamic.spec.ts",
+      "test": "a page tool can be called directly",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webmcp-dynamic.spec.ts",
+      "test": "a page tool that answers with isError fails the call",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webmcp-dynamic.spec.ts",
+      "test": "only the current tab contributes tools, switching tabs swaps them",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webmcp-dynamic.spec.ts",
+      "test": "a tool registered in an iframe can be called after the page is reloaded",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webmcp.spec.ts",
+      "test": "browser_navigate reports available WebMCP tools",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webmcp.spec.ts",
+      "test": "browser_snapshot lists the WebMCP tools at the top",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    },
+    {
+      "file": "mcp/webstorage.spec.ts",
+      "test": "browser_sessionstorage_list unavailable without storage capability",
+      "error": "Error: expect(received).toEqual(expected) // deep equality"
+    }
+  ]
+}
