@@ -235,6 +235,7 @@ mod tests {
         );
 
         drop(local);
+        let mut watcher = connector.connect().await.unwrap();
         agent
             .send(json!({"id": 2, "method": "Browser.getVersion"}))
             .await;
@@ -249,5 +250,9 @@ mod tests {
             .expect("a shutdown request stops the browser")
             .unwrap()
             .unwrap();
+        // pilot's window quits when its client's stream ends.
+        tokio::time::timeout(WAIT, async { while watcher.recv().await.is_some() {} })
+            .await
+            .expect("a local client sees the browser stop");
     }
 }
