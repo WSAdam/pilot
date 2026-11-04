@@ -16,8 +16,10 @@ use moli_protocol_server::{
 use pilot_window::{
     agent::ACTIVE_FOR,
     controller::{Command, Update, run_controller},
-    geometry::FrameMetadata,
+    geometry::{ChromeLayout, FrameMetadata, Rect},
     input::{self, Key, Modifiers, MouseButton},
+    text::TextRenderer,
+    view::View,
 };
 use serde_json::{Value, json};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -109,6 +111,8 @@ struct Harness {
     updates: mpsc::UnboundedReceiver<Update>,
     serving: JoinHandle<anyhow::Result<()>>,
     controller: JoinHandle<anyhow::Result<()>>,
+    /// What the window shows, from every update received so far.
+    view: View,
 }
 
 impl Harness {
@@ -151,6 +155,7 @@ impl Harness {
             updates,
             serving,
             controller,
+            view: View::default(),
         };
         let target_id = harness.target_id.clone();
         let Update::Tabs { tabs, active } = harness
@@ -187,6 +192,7 @@ impl Harness {
                     .recv()
                     .await
                     .expect("the controller is running");
+                self.view.apply(update.clone());
                 if wanted(&update) {
                     return update;
                 }
@@ -354,6 +360,142 @@ async fn the_agent_indicator_lights_while_the_agent_sends_commands() {
         quiet.elapsed() >= ACTIVE_FOR / 2,
         "the indicator stays on for a while"
     );
+    drop(socket);
+    harness.close().await;
+}
+
+const SOLID_PAGE: &str =
+    "data:text/html,<title>solid</title><body style='margin:0;background:rgb(0,96,200)'>";
+const SOLID: (u8, u8, u8) = (0, 96, 200);
+const BADGE_IDLE: u32 = 0xf1f3f4;
+const BADGE_ACTIVE: u32 = 0x1a73e8;
+
+/// Whether `word` is `color`, give or take JPEG noise.
+fn near(word: u32, (red, green, blue): (u8, u8, u8)) -> bool {
+    let close = |shift: u32, wanted: u8| ((word >> shift) & 0xff).abs_diff(u32::from(wanted)) <= 12;
+    close(16, red) && close(8, green) && close(0, blue)
+}
+
+/// Pixels in `area` dark enough to be label text.
+fn dark_pixels(buffer: &[u32], width: usize, area: Rect) -> usize {
+    (area.y as usize..area.bottom() as usize)
+        .flat_map(|y| (area.x as usize..area.right() as usize).map(move |x| y * width + x))
+        .filter(|&index| {
+            let word = buffer[index];
+            [word >> 16, word >> 8, word]
+                .iter()
+                .all(|channel| (*channel & 0xff) < 128)
+        })
+        .count()
+}
+
+/// What a window of `layout`'s size would show for `view`.
+fn compose(view: &View, layout: &ChromeLayout, text: Option<&TextRenderer>) -> Vec<u32> {
+    let (width, height) = (
+        layout.tab_strip.width as usize,
+        layout.content.bottom() as usize,
+    );
+    let mut buffer = vec![0; width * height];
+    view.compose(layout, text, &mut buffer, width, height);
+    buffer
+}
+
+impl Harness {
+    /// Takes updates until the window's view satisfies `ready`.
+    async fn view_until(&mut self, mut ready: impl FnMut(&View) -> bool) -> &View {
+        let reached = tokio::time::timeout(WAIT, async {
+            while !ready(&self.view) {
+                let update = self
+                    .updates
+                    .recv()
+                    .await
+                    .expect("the controller is running");
+                self.view.apply(update);
+            }
+        })
+        .await;
+        assert!(
+            reached.is_ok(),
+            "the window never got there; it shows tabs {:?} (active {:?}), agent active {}, a frame: {}",
+            self.view.tabs,
+            self.view.active,
+            self.view.agent_active,
+            self.view.frame.is_some()
+        );
+        &self.view
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_composed_window_shows_the_agents_page_its_title_and_the_agent_badge() {
+    let mut harness = Harness::start(SOLID_PAGE).await;
+    let layout = ChromeLayout::new(800, 600, 1.0);
+    let width = layout.tab_strip.width as usize;
+    let text = TextRenderer::system();
+    assert!(
+        text.is_some() || !cfg!(target_os = "macos"),
+        "macOS always has a system UI font"
+    );
+    let shows_page = |view: &View| {
+        view.frame.as_ref().is_some_and(|(frame, _)| {
+            near(
+                frame.pixels
+                    [(frame.height as usize / 2) * frame.width as usize + frame.width as usize / 2],
+                SOLID,
+            )
+        })
+    };
+
+    let view = harness
+        .view_until(|view| {
+            shows_page(view) && view.active_tab().is_some_and(|tab| tab.title == "solid")
+        })
+        .await;
+    let buffer = compose(view, &layout, text.as_ref());
+
+    let (shown, _) = view.shown_frame(&layout).unwrap();
+    assert!(
+        shown.width * shown.height >= layout.content.width * layout.content.height * 0.5,
+        "the page fills most of the page area: {shown:?} in {:?}",
+        layout.content
+    );
+    for row in 1..10 {
+        for column in 1..10 {
+            let (x, y) = (
+                shown.x + shown.width * f64::from(column) / 10.0,
+                shown.y + shown.height * f64::from(row) / 10.0,
+            );
+            let word = buffer[y as usize * width + x as usize];
+            assert!(near(word, SOLID), "{word:06x} at ({x}, {y}) is the page");
+        }
+    }
+    let tab = layout.tab(view.active.unwrap(), view.tabs.len());
+    if text.is_some() {
+        assert!(dark_pixels(&buffer, width, tab) > 20, "the title is drawn");
+    }
+    let badge = |buffer: &[u32]| {
+        let (x, y) = (
+            layout.agent_badge.x + 4.0,
+            layout.agent_badge.y + layout.agent_badge.height / 2.0,
+        );
+        buffer[y as usize * width + x as usize]
+    };
+    assert_eq!(badge(&buffer), BADGE_IDLE);
+
+    // An agent connects as Playwright MCP's --cdp-endpoint mode does.
+    let url = format!("ws://{}/devtools/browser/moli-browser", harness.address);
+    let stream = tokio::net::TcpStream::connect(harness.address)
+        .await
+        .unwrap();
+    let (mut socket, _) = tokio_tungstenite::client_async(url, stream).await.unwrap();
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::text(
+            json!({"id": 1, "method": "Browser.getVersion"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    let view = harness.view_until(|view| view.agent_active).await;
+    assert_eq!(badge(&compose(view, &layout, text.as_ref())), BADGE_ACTIVE);
     drop(socket);
     harness.close().await;
 }

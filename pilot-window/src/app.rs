@@ -10,11 +10,6 @@ use std::{
 use anyhow::{Context, Result};
 use moli_protocol_server::LocalCdpConnector;
 use tokio::sync::mpsc;
-use vello_cpu::{
-    Pixmap, RenderContext, Resources,
-    color::{AlphaColor, Srgb},
-    kurbo::{BezPath, Rect as Box2, RoundedRect, Shape, Stroke},
-};
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -26,21 +21,14 @@ use winit::{
 
 use crate::{
     controller::{Command, Update, run_controller},
-    frame::Frame,
-    geometry::{ChromeLayout, FrameMetadata, Rect, letterbox, window_to_page},
+    geometry::{ChromeLayout, window_to_page},
     input::{self, Key, Modifiers, MouseButton, NamedKey},
-    tabs::Tab,
     text::TextRenderer,
+    view::View,
 };
 
-const BACKDROP: u32 = 0x202124;
 const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 const WHEEL_LINE: f64 = 40.0;
-const LABEL_SIZE: f32 = 13.0;
-
-fn rgb(red: u8, green: u8, blue: u8) -> AlphaColor<Srgb> {
-    AlphaColor::from_rgb8(red, green, blue)
-}
 
 enum AppEvent {
     Update(Update),
@@ -91,12 +79,7 @@ struct App {
     commands: mpsc::UnboundedSender<Command>,
     surface: Option<Surface>,
     text: Option<TextRenderer>,
-    tabs: Vec<Tab>,
-    active: Option<usize>,
-    frame: Option<(Frame, FrameMetadata)>,
-    agent_active: bool,
-    /// The URL bar's text while it has focus.
-    url_edit: Option<String>,
+    view: View,
     cursor: (f64, f64),
     modifiers: Modifiers,
     buttons: u32,
@@ -109,11 +92,7 @@ impl App {
             commands,
             surface: None,
             text: None,
-            tabs: Vec::new(),
-            active: None,
-            frame: None,
-            agent_active: false,
-            url_edit: None,
+            view: View::default(),
             cursor: (0.0, 0.0),
             modifiers: Modifiers::default(),
             buttons: 0,
@@ -141,46 +120,25 @@ impl App {
         }
     }
 
-    fn shown_frame(&self, layout: &ChromeLayout) -> Option<(Rect, FrameMetadata)> {
-        let (frame, metadata) = self.frame.as_ref()?;
-        Some((
-            letterbox(frame.width, frame.height, layout.content),
-            *metadata,
-        ))
-    }
-
     /// The page CSS pixel under a window point, when it is on the page.
     fn page_point(&self, x: f64, y: f64) -> Option<(f64, f64)> {
         let layout = self.layout()?;
-        let (shown, metadata) = self.shown_frame(&layout)?;
+        let (shown, metadata) = self.view.shown_frame(&layout)?;
         window_to_page(x, y, shown, metadata)
     }
 
-    fn active_url(&self) -> String {
-        self.active
-            .and_then(|index| self.tabs.get(index))
-            .map(|tab| tab.url.clone())
-            .unwrap_or_default()
-    }
-
     fn update(&mut self, update: Update) {
-        match update {
-            Update::Tabs { tabs, active } => {
-                self.tabs = tabs;
-                self.active = active;
-                if let (Some(surface), Some(tab)) =
-                    (&self.surface, active.and_then(|index| self.tabs.get(index)))
-                {
-                    let title = if tab.title.is_empty() {
-                        &tab.url
-                    } else {
-                        &tab.title
-                    };
-                    surface.window.set_title(&format!("{title} — pilot"));
-                }
-            }
-            Update::Frame { frame, metadata } => self.frame = Some((frame, metadata)),
-            Update::AgentActive(active) => self.agent_active = active,
+        let tabs_changed = matches!(update, Update::Tabs { .. });
+        self.view.apply(update);
+        if let (true, Some(surface), Some(tab)) =
+            (tabs_changed, &self.surface, self.view.active_tab())
+        {
+            let title = if tab.title.is_empty() {
+                &tab.url
+            } else {
+                &tab.title
+            };
+            surface.window.set_title(&format!("{title} — pilot"));
         }
         self.request_redraw();
     }
@@ -205,7 +163,7 @@ impl App {
             return;
         };
         if pressed {
-            self.url_edit = None;
+            self.view.url_edit = None;
             self.buttons |= button.mask();
         } else {
             self.buttons &= !button.mask();
@@ -244,10 +202,9 @@ impl App {
     }
 
     fn click_chrome(&mut self, layout: &ChromeLayout, x: f64, y: f64) {
-        if let Some(index) =
-            (0..self.tabs.len()).find(|&index| layout.tab(index, self.tabs.len()).contains(x, y))
-        {
-            self.url_edit = None;
+        let count = self.view.tabs.len();
+        if let Some(index) = (0..count).find(|&index| layout.tab(index, count).contains(x, y)) {
+            self.view.url_edit = None;
             self.send(Command::ActivateTab(index));
         } else if layout.back.contains(x, y) {
             self.send(Command::Back);
@@ -256,9 +213,9 @@ impl App {
         } else if layout.reload.contains(x, y) {
             self.send(Command::Reload);
         } else if layout.url_bar.contains(x, y) {
-            self.url_edit = Some(self.active_url());
+            self.view.url_edit = Some(self.view.active_url());
         } else {
-            self.url_edit = None;
+            self.view.url_edit = None;
         }
         self.request_redraw();
     }
@@ -290,17 +247,17 @@ impl App {
     }
 
     fn key(&mut self, logical_key: &WinitKey, pressed: bool) {
-        if let Some(edit) = &mut self.url_edit {
+        if let Some(edit) = &mut self.view.url_edit {
             if pressed {
                 match logical_key {
                     WinitKey::Named(WinitNamedKey::Enter) => {
                         let typed = std::mem::take(edit);
-                        self.url_edit = None;
+                        self.view.url_edit = None;
                         if let Some(url) = input::url_from_bar(&typed) {
                             self.send(Command::Navigate(url));
                         }
                     }
-                    WinitKey::Named(WinitNamedKey::Escape) => self.url_edit = None,
+                    WinitKey::Named(WinitNamedKey::Escape) => self.view.url_edit = None,
                     WinitKey::Named(WinitNamedKey::Backspace) => {
                         edit.pop();
                     }
@@ -348,8 +305,6 @@ impl App {
 
     fn draw(&mut self) {
         let Some(layout) = self.layout() else { return };
-        let chrome = self.paint_chrome(&layout);
-        let shown = self.shown_frame(&layout).map(|(shown, _)| shown);
         let Some(surface) = &mut self.surface else {
             return;
         };
@@ -365,170 +320,12 @@ impl App {
         if buffer.len() != width * height {
             return;
         }
-        buffer.fill(BACKDROP);
-        if let (Some((frame, _)), Some(shown)) = (&self.frame, shown) {
-            frame.blit(&mut buffer, width, height, shown);
-        }
-        if let Some(chrome) = chrome {
-            let chrome_width = usize::from(chrome.width());
-            for (index, pixel) in chrome.data().iter().enumerate() {
-                let (x, y) = (index % chrome_width, index / chrome_width);
-                if x < width && y < height {
-                    buffer[y * width + x] =
-                        u32::from(pixel.r) << 16 | u32::from(pixel.g) << 8 | u32::from(pixel.b);
-                }
-            }
-        }
+        self.view
+            .compose(&layout, self.text.as_ref(), &mut buffer, width, height);
         if let Err(error) = buffer.present() {
             tracing::warn!(%error, "⚠️ could not present the window buffer");
         }
     }
-
-    /// The tab strip and toolbar, as an opaque pixmap as wide as the window.
-    fn paint_chrome(&self, layout: &ChromeLayout) -> Option<Pixmap> {
-        let width = u16::try_from(layout.tab_strip.width.round() as u32).ok()?;
-        let height = u16::try_from(layout.content.y.round() as u32).ok()?;
-        if width == 0 || height == 0 {
-            return None;
-        }
-        let scale = layout.scale();
-        let label = LABEL_SIZE * scale as f32;
-        let mut context = RenderContext::new(width, height);
-        context.set_paint(rgb(222, 225, 230));
-        context.fill_rect(&Box2::new(0.0, 0.0, f64::from(width), f64::from(height)));
-        context.set_paint(rgb(255, 255, 255));
-        context.fill_rect(&Box2::new(
-            0.0,
-            layout.tab_strip.bottom(),
-            f64::from(width),
-            f64::from(height),
-        ));
-
-        for (index, tab) in self.tabs.iter().enumerate() {
-            let area = layout.tab(index, self.tabs.len());
-            let active = Some(index) == self.active;
-            if active {
-                context.set_paint(rgb(255, 255, 255));
-                context.fill_path(&rounded(area, 6.0 * scale, 2.0 * scale).to_path(0.1));
-            }
-            if let Some(text) = &self.text {
-                let title = if tab.title.is_empty() {
-                    &tab.url
-                } else {
-                    &tab.title
-                };
-                let (title, title_color) = if title.is_empty() {
-                    ("New tab", rgb(95, 99, 104))
-                } else if active {
-                    (title.as_str(), rgb(32, 33, 36))
-                } else {
-                    (title.as_str(), rgb(95, 99, 104))
-                };
-                context.set_paint(title_color);
-                let baseline = area.y + (area.height + text.ascent(label) * 0.7) / 2.0;
-                text.draw(
-                    &mut context,
-                    title,
-                    area.x + 12.0 * scale,
-                    baseline,
-                    label,
-                    area.width - 24.0 * scale,
-                );
-            }
-        }
-
-        context.set_stroke(Stroke::new(2.0 * scale));
-        context.set_paint(rgb(95, 99, 104));
-        context.stroke_path(&chevron(layout.back, -1.0));
-        context.stroke_path(&chevron(layout.forward, 1.0));
-        context.stroke_path(&reload_arrow(layout.reload));
-
-        context.set_paint(rgb(241, 243, 244));
-        context.fill_path(&rounded(layout.url_bar, layout.url_bar.height / 2.0, 0.0).to_path(0.1));
-        if let Some(text) = &self.text {
-            let (shown, color) = match &self.url_edit {
-                Some(edit) => (format!("{edit}|"), rgb(32, 33, 36)),
-                None => (self.active_url(), rgb(60, 64, 67)),
-            };
-            context.set_paint(color);
-            let baseline =
-                layout.url_bar.y + (layout.url_bar.height + text.ascent(label) * 0.7) / 2.0;
-            text.draw(
-                &mut context,
-                &shown,
-                layout.url_bar.x + 14.0 * scale,
-                baseline,
-                label,
-                layout.url_bar.width - 28.0 * scale,
-            );
-
-            let (badge, badge_text, badge_color) = if self.agent_active {
-                (rgb(26, 115, 232), "● Agent active", rgb(255, 255, 255))
-            } else {
-                (rgb(241, 243, 244), "Agent idle", rgb(95, 99, 104))
-            };
-            context.set_paint(badge);
-            context.fill_path(
-                &rounded(layout.agent_badge, layout.agent_badge.height / 2.0, 0.0).to_path(0.1),
-            );
-            context.set_paint(badge_color);
-            let badge_baseline =
-                layout.agent_badge.y + (layout.agent_badge.height + text.ascent(label) * 0.7) / 2.0;
-            text.draw(
-                &mut context,
-                badge_text,
-                layout.agent_badge.x + 12.0 * scale,
-                badge_baseline,
-                label,
-                layout.agent_badge.width - 24.0 * scale,
-            );
-        }
-
-        let mut pixmap = Pixmap::new(width, height);
-        context.flush();
-        context.render(&mut pixmap, &mut Resources::new());
-        Some(pixmap)
-    }
-}
-
-fn rounded(area: Rect, radius: f64, inset: f64) -> RoundedRect {
-    RoundedRect::new(
-        area.x + inset,
-        area.y + inset,
-        area.right() - inset,
-        area.bottom() + radius,
-        radius,
-    )
-}
-
-/// `<` (direction -1) or `>` (direction 1) centered in `area`.
-fn chevron(area: Rect, direction: f64) -> BezPath {
-    let (center_x, center_y) = (area.x + area.width / 2.0, area.y + area.height / 2.0);
-    let size = area.width * 0.18;
-    let mut path = BezPath::new();
-    path.move_to((center_x - direction * size / 2.0, center_y - size));
-    path.line_to((center_x + direction * size / 2.0, center_y));
-    path.line_to((center_x - direction * size / 2.0, center_y + size));
-    path
-}
-
-/// An open circle with an arrowhead, centered in `area`.
-fn reload_arrow(area: Rect) -> BezPath {
-    let (center_x, center_y) = (area.x + area.width / 2.0, area.y + area.height / 2.0);
-    let radius = area.width * 0.22;
-    let mut path = vello_cpu::kurbo::Arc::new(
-        (center_x, center_y),
-        (radius, radius),
-        -std::f64::consts::FRAC_PI_4,
-        std::f64::consts::PI * 1.6,
-        0.0,
-    )
-    .into_path(0.1);
-    let tip = (center_x + radius * 0.71, center_y - radius * 0.71);
-    path.move_to((tip.0 - radius * 0.5, tip.1));
-    path.line_to(tip);
-    path.line_to((tip.0, tip.1 + radius * 0.5));
-    path
 }
 
 fn named_key(key: WinitNamedKey) -> Option<NamedKey> {

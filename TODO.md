@@ -109,3 +109,6 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] A server that ends a close-delimited response (no Content-Length) by closing TCP without a TLS close_notify fails the navigation with curl error 56 (Craigslist's 302); Chrome treats the response as complete
 - [x] pilot's TLS ClientHello is Chrome's (JA4 t13d1516h2_8daaf6152771_d8a2da3f94cd, GREASE, shuffled extensions, brotli certificate compression, ALPS, ECH GREASE); libcurl's own hello read as a script
 - [ ] pilot's HTTP/2 connection preface matches Chrome's (SETTINGS 1:65536;2:0;4:6291456;6:262144, WINDOW_UPDATE 15663105, pseudo-headers m,a,s,p), which needs a vendored libcurl
+- [x] The window's agent badge shows idle grey or active blue even when no system UI font loads; it was drawn only with a font (pilot-window/src/view.rs)
+- [x] The composed window (tab strip, toolbar, agent badge, letterboxed page) is checked pixel by pixel against a real in-process browser in pilot-window's tests, replacing the hand check of the headful window
+- [x] Claude Code's Playwright MCP launch (stdio @playwright/mcp with --executable-path pilot, as claude mcp add in pilot/README.md sets it up) is covered headless, isolated and headed with the window by pilot/conformance/mcp.test.mjs, replacing the hand check

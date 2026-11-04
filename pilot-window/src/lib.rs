@@ -15,3 +15,4 @@ pub mod geometry;
 pub mod input;
 pub mod tabs;
 pub mod text;
+pub mod view;
