@@ -8,112 +8,112 @@
     {
       "tool": "browser_navigate",
       "ok": true,
-      "ms": 3128
+      "ms": 1908
     },
     {
       "tool": "browser_snapshot",
       "ok": true,
-      "ms": 74
+      "ms": 52
     },
     {
       "tool": "browser_click",
       "ok": true,
-      "ms": 1190
+      "ms": 1141
     },
     {
       "tool": "browser_click (double)",
       "ok": true,
-      "ms": 1180
+      "ms": 1157
     },
     {
       "tool": "browser_type",
       "ok": true,
-      "ms": 605
+      "ms": 632
     },
     {
       "tool": "browser_fill_form",
       "ok": true,
-      "ms": 659
+      "ms": 686
     },
     {
       "tool": "browser_select_option",
       "ok": true,
-      "ms": 602
+      "ms": 631
     },
     {
       "tool": "browser_hover",
       "ok": true,
-      "ms": 625
+      "ms": 637
     },
     {
       "tool": "browser_drag",
       "ok": true,
-      "ms": 1213
+      "ms": 1182
     },
     {
       "tool": "browser_drop",
       "ok": true,
-      "ms": 1166
+      "ms": 1135
     },
     {
       "tool": "browser_press_key",
       "ok": true,
-      "ms": 585
+      "ms": 571
     },
     {
       "tool": "browser_handle_dialog",
       "ok": true,
-      "ms": 1133
+      "ms": 1211
     },
     {
       "tool": "browser_file_upload",
       "ok": true,
-      "ms": 1167
+      "ms": 1190
     },
     {
       "tool": "browser_evaluate",
       "ok": true,
-      "ms": 564
+      "ms": 598
     },
     {
       "tool": "browser_console_messages",
       "ok": true,
-      "ms": 1168
+      "ms": 1188
     },
     {
       "tool": "browser_network_requests",
       "ok": true,
-      "ms": 1668
+      "ms": 1683
     },
     {
       "tool": "browser_network_request",
       "ok": true,
-      "ms": 72
+      "ms": 79
     },
     {
       "tool": "browser_navigate_back",
       "ok": true,
-      "ms": 625
+      "ms": 650
     },
     {
       "tool": "browser_tabs",
       "ok": true,
-      "ms": 123
+      "ms": 134
     },
     {
       "tool": "browser_take_screenshot",
       "ok": true,
-      "ms": 55
+      "ms": 66
     },
     {
       "tool": "browser_take_screenshot (full page)",
       "ok": true,
-      "ms": 80
+      "ms": 95
     },
     {
       "tool": "browser_take_screenshot (element)",
       "ok": true,
-      "ms": 106
+      "ms": 122
     },
     {
       "tool": "browser_resize",
@@ -123,67 +123,67 @@
     {
       "tool": "browser_emulate_media",
       "ok": true,
-      "ms": 585
+      "ms": 591
     },
     {
       "tool": "browser_wait_for",
       "ok": true,
-      "ms": 76
+      "ms": 84
     },
     {
       "tool": "browser_find",
       "ok": true,
-      "ms": 45
+      "ms": 49
     },
     {
       "tool": "browser_pdf_save",
       "ok": true,
-      "ms": 45
+      "ms": 49
     },
     {
       "tool": "browser_mouse_click_xy",
       "ok": true,
-      "ms": 1595
+      "ms": 1606
     },
     {
       "tool": "browser_mouse_move_xy",
       "ok": true,
-      "ms": 1103
+      "ms": 1109
     },
     {
       "tool": "browser_mouse_down / browser_mouse_up",
       "ok": true,
-      "ms": 1108
+      "ms": 1121
     },
     {
       "tool": "browser_mouse_drag_xy",
       "ok": true,
-      "ms": 2137
+      "ms": 2165
     },
     {
       "tool": "browser_mouse_wheel",
       "ok": true,
-      "ms": 1101
+      "ms": 1108
     },
     {
       "tool": "browser_run_code_unsafe",
       "ok": true,
-      "ms": 183556
+      "ms": 588
     },
     {
       "tool": "browser_generate_locator",
       "ok": true,
-      "ms": 70
+      "ms": 103
     },
     {
       "tool": "browser_verify_element_visible",
       "ok": true,
-      "ms": 59
+      "ms": 63
     },
     {
       "tool": "browser_verify_text_visible",
       "ok": true,
-      "ms": 62
+      "ms": 68
     },
     {
       "tool": "browser_verify_list_visible",
@@ -193,12 +193,12 @@
     {
       "tool": "browser_verify_value",
       "ok": true,
-      "ms": 89
+      "ms": 78
     },
     {
       "tool": "browser_close",
       "ok": true,
-      "ms": 62
+      "ms": 60
     }
   ]
 }
