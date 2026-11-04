@@ -76,3 +76,8 @@ Date: 2026-11-03
 Every TLS connection pilot makes offers Chrome's cipher suites, groups, signature algorithms and extensions, with GREASE and per-connection extension shuffling, so its JA4 fingerprint is Chrome's. It also accepts a TCP close without a TLS close_notify at the end of a close-delimited response, as Chrome does.
 Why: sites behind bot defenses fingerprint the ClientHello, and libcurl's own hello identifies pilot as a script. The user chose bot walls as the next focus on 2026-11-03. HTTP/2 SETTINGS and header order are the next layers; they need libcurl changes.
 Date: 2026-11-03
+
+## pilot's HTTP/2 connection preface is Chrome's
+pilot's libcurl opens HTTP/2 connections with Chrome's SETTINGS (values and order), Chrome's connection window and stream windows, and Chrome's pseudo-header order, so its Akamai HTTP/2 fingerprint is Chrome's. curl-sys is vendored in vendor/curl-sys to carry the patch to libcurl's http2.c and http.c.
+Why: bot defenses fingerprint the HTTP/2 preface alongside the TLS ClientHello; libcurl's own (MAX_CONCURRENT_STREAMS 100, a 1 GB window, :scheme before :authority) marks pilot as curl. Chrome's per-request HEADERS priority is not sent: nghttp2 1.68 no longer sends RFC 7540 priorities.
+Date: 2026-11-03

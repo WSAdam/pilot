@@ -5036,15 +5036,16 @@ CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
 
   Curl_dynhds_reset(h2_headers);
   Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
+  /* pilot: Chrome's pseudo-header order, method, authority, scheme, path */
   result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_METHOD),
                            req->method, strlen(req->method));
-  if(!result && scheme) {
-    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
-                             scheme, strlen(scheme));
-  }
   if(!result && authority) {
     result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_AUTHORITY),
                              authority, strlen(authority));
+  }
+  if(!result && scheme) {
+    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
+                             scheme, strlen(scheme));
   }
   if(!result && req->path) {
     result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_PATH),

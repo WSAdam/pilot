@@ -63,15 +63,11 @@
 #define H2_NW_RECV_CHUNKS       (H2_CONN_WINDOW_SIZE / H2_CHUNK_SIZE)
 /* on send into TLS, we want to accumulate small frames */
 #define H2_NW_SEND_CHUNKS       1
-/* this is how much we want "in flight" for a stream, unthrottled */
-#define H2_STREAM_WINDOW_SIZE_MAX   (10 * 1024 * 1024)
-/* this is how much we want "in flight" for a stream, initially, IFF
- * nghttp2 allows us to tweak the local window size. */
-#if NGHTTP2_HAS_SET_LOCAL_WINDOW_SIZE
-#define H2_STREAM_WINDOW_SIZE_INITIAL  (64 * 1024)
-#else
+/* this is how much we want "in flight" for a stream, unthrottled.
+ * pilot: Chrome's 6 MiB, which is also every stream's initial window, so
+ * curl sends no stream WINDOW_UPDATE that Chrome would not. */
+#define H2_STREAM_WINDOW_SIZE_MAX   (6 * 1024 * 1024)
 #define H2_STREAM_WINDOW_SIZE_INITIAL H2_STREAM_WINDOW_SIZE_MAX
-#endif
 /* keep smaller stream upload buffer (default h2 window size) to have
  * our progress bars and "upload done" reporting closer to reality */
 #define H2_STREAM_SEND_CHUNKS   ((64 * 1024) / H2_CHUNK_SIZE)
@@ -82,9 +78,16 @@
  * the overall connection. Streams might become PAUSED which will block their
  * received QUOTA in the connection window. If we run out of space, the server
  * is blocked from sending us any data. See #10988 for an issue with this. */
-#define HTTP2_HUGE_WINDOW_SIZE (100 * H2_STREAM_WINDOW_SIZE_MAX)
+/* pilot: Chrome's connection window, 15 MiB (a WINDOW_UPDATE of 15663105
+ * after the preface). Servers fingerprint it; pilot never pauses a stream,
+ * so no stream holds the window's quota. */
+#define HTTP2_HUGE_WINDOW_SIZE (15 * 1024 * 1024)
 
-#define H2_SETTINGS_IV_LEN 3
+/* pilot: Chrome's SETTINGS frame for a browser connection. */
+#define H2_CHROME_HEADER_TABLE_SIZE    65536
+#define H2_CHROME_MAX_HEADER_LIST_SIZE 262144
+
+#define H2_SETTINGS_IV_LEN 4
 #define H2_BINSETTINGS_LEN 80
 
 struct cf_h2_ctx {
@@ -214,21 +217,28 @@ static uint32_t cf_h2_initial_win_size(struct Curl_easy *data)
   return H2_STREAM_WINDOW_SIZE_INITIAL;
 }
 
+/* pilot: Chrome's settings, in Chrome's order: HEADER_TABLE_SIZE,
+ * ENABLE_PUSH, INITIAL_WINDOW_SIZE, MAX_HEADER_LIST_SIZE. Chrome sends no
+ * MAX_CONCURRENT_STREAMS. A rate-limited transfer still asks for its
+ * smaller window. */
 static size_t populate_settings(nghttp2_settings_entry *iv,
                                 struct Curl_easy *data,
                                 struct cf_h2_ctx *ctx)
 {
-  iv[0].settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS;
-  iv[0].value = Curl_multi_max_concurrent_streams(data->multi);
+  uint32_t win_size = cf_h2_initial_win_size(data);
 
-  iv[1].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
-  iv[1].value = cf_h2_initial_win_size(data);
+  iv[0].settings_id = NGHTTP2_SETTINGS_HEADER_TABLE_SIZE;
+  iv[0].value = H2_CHROME_HEADER_TABLE_SIZE;
+  iv[1].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
+  iv[1].value = !!data->multi->push_cb;
+  iv[2].settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
+  iv[2].value = win_size;
   if(ctx)
-    ctx->initial_win_size = iv[1].value;
-  iv[2].settings_id = NGHTTP2_SETTINGS_ENABLE_PUSH;
-  iv[2].value = !!data->multi->push_cb;
+    ctx->initial_win_size = win_size;
+  iv[3].settings_id = NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE;
+  iv[3].value = H2_CHROME_MAX_HEADER_LIST_SIZE;
 
-  return 3;
+  return 4;
 }
 
 static ssize_t populate_binsettings(uint8_t *binsettings,
