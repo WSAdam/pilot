@@ -15,43 +15,43 @@
       "title": "Web browser - Wikipedia",
       "navigatedTo": "https://en.wikipedia.org/wiki/Main_Page",
       "pageErrors": [],
-      "ms": 2682
+      "ms": 2300
     },
     {
       "url": "https://news.ycombinator.com/",
       "loaded": true,
-      "snapshot": 48400,
-      "links": 221,
+      "snapshot": 48551,
+      "links": 222,
       "clicked": true,
       "status": 200,
       "title": "Hacker News",
       "navigatedTo": "https://spectrum.ieee.org/ai-in-cybersecurity-php2shell-vulnerability",
       "pageErrors": [],
-      "ms": 3463
+      "ms": 2483
     },
     {
       "url": "https://github.com/microsoft/playwright",
       "loaded": true,
-      "snapshot": 72168,
+      "snapshot": 72187,
       "links": 197,
       "clicked": true,
       "status": 200,
       "title": "GitHub - microsoft/playwright: Playwright is a framework for Web Testing and Aut",
       "navigatedTo": "https://github.com/",
       "pageErrors": [],
-      "ms": 11383
+      "ms": 11834
     },
     {
       "url": "https://developer.mozilla.org/en-US/docs/Web/HTML",
       "loaded": true,
-      "snapshot": 36919,
-      "links": 134,
+      "snapshot": 36863,
+      "links": 135,
       "clicked": false,
       "status": 200,
       "title": "HTML: HyperText Markup Language | MDN",
       "error": "locator.click: Timeout 10000ms exceeded.",
       "pageErrors": [],
-      "ms": 11942
+      "ms": 11779
     },
     {
       "url": "https://docs.python.org/3/",
@@ -63,7 +63,7 @@
       "title": "Python 3.15.2 documentation",
       "navigatedTo": "https://www.python.org/",
       "pageErrors": [],
-      "ms": 1885
+      "ms": 1817
     },
     {
       "url": "https://www.rust-lang.org/",
@@ -75,7 +75,7 @@
       "title": "Rust Programming Language",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 1538
+      "ms": 1632
     },
     {
       "url": "https://deno.com/",
@@ -87,7 +87,7 @@
       "title": "Deno, the drop-in JavaScript runtime for Node developers",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 10188
+      "ms": 9919
     },
     {
       "url": "https://nodejs.org/en",
@@ -99,7 +99,7 @@
       "title": "Node.js — Run JavaScript Everywhere",
       "navigatedTo": "https://nodejs.org/en/blog/vulnerability/november-2026-security-releases",
       "pageErrors": [],
-      "ms": 1740
+      "ms": 1675
     },
     {
       "url": "https://www.npmjs.com/package/playwright",
@@ -111,31 +111,31 @@
       "title": "playwright - npm",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 2386
+      "ms": 2536
     },
     {
       "url": "https://crates.io/",
       "loaded": true,
-      "snapshot": 32982,
-      "links": 76,
+      "snapshot": 34523,
+      "links": 77,
       "clicked": true,
       "status": 200,
       "title": "crates.io: Rust Package Registry",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 2245
+      "ms": 2139
     },
     {
       "url": "https://jsr.io/",
       "loaded": true,
-      "snapshot": 17329,
-      "links": 43,
+      "snapshot": 16142,
+      "links": 42,
       "clicked": true,
       "status": 200,
       "title": "JSR: the JavaScript Registry",
       "navigatedTo": "https://jsr.io/packages",
       "pageErrors": [],
-      "ms": 2343
+      "ms": 2542
     },
     {
       "url": "https://stackoverflow.com/questions",
@@ -147,13 +147,13 @@
       "title": "Just a moment...",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 16949
+      "ms": 26057
     },
     {
       "url": "https://www.bbc.com/news",
       "loaded": true,
-      "snapshot": 61014,
-      "links": 109,
+      "snapshot": 61267,
+      "links": 110,
       "clicked": true,
       "status": 200,
       "title": "BBC News - Breaking news, video and the latest top stories from the U.S. and aro",
@@ -161,67 +161,67 @@
       "pageErrors": [
         "/secure-us.imrworldwide.com/cgi-bin/m?ci=us-804789h&amp;cg=0&amp;cc=1&amp;si=https://www.bbc.com/news&amp;rp=&amp;ts=com"
       ],
-      "ms": 12153
+      "ms": 12080
     },
     {
       "url": "https://www.theguardian.com/international",
       "loaded": true,
-      "snapshot": 158971,
-      "links": 248,
+      "snapshot": 164088,
+      "links": 247,
       "clicked": true,
       "status": 200,
       "title": "Latest news, sport and opinion from the Guardian",
-      "navigatedTo": "https://support.theguardian.com/us/contribute?REFPVID=mw26dhi3j4q0lgeq371s&INTCMP=header_support_202",
+      "navigatedTo": "https://support.theguardian.com/us/contribute?REFPVID=mw28n1xa4oqmclj0cmzp&INTCMP=header_support_202",
       "pageErrors": [],
-      "ms": 13843
+      "ms": 13217
     },
     {
       "url": "https://www.reuters.com/",
       "loaded": true,
-      "snapshot": 200,
+      "snapshot": 1672,
       "links": 0,
       "clicked": false,
       "status": 401,
       "title": "reuters.com",
       "error": "locator.click: Timeout 10000ms exceeded.",
       "pageErrors": [],
-      "ms": 11993
+      "ms": 11802
     },
     {
       "url": "https://www.amazon.com/",
       "loaded": true,
-      "snapshot": 46455,
-      "links": 131,
+      "snapshot": 3255655,
+      "links": 156,
       "clicked": true,
       "status": 202,
       "title": "Amazon.com. Spend less. Smile more.",
       "navigatedTo": "https://www.amazon.com/ref=nav_logo",
       "pageErrors": [],
-      "ms": 12838
+      "ms": 23306
     },
     {
       "url": "https://www.ebay.com/",
       "loaded": true,
-      "snapshot": 481,
+      "snapshot": 480,
       "links": 0,
       "clicked": false,
       "status": 403,
       "title": "Error Page | eBay",
       "error": "locator.click: Timeout 10000ms exceeded.",
       "pageErrors": [],
-      "ms": 11702
+      "ms": 11757
     },
     {
       "url": "https://www.etsy.com/",
       "loaded": true,
-      "snapshot": 873,
+      "snapshot": 1673,
       "links": 0,
       "clicked": false,
       "status": 403,
       "title": "etsy.com",
       "error": "locator.click: Timeout 10000ms exceeded.",
       "pageErrors": [],
-      "ms": 12373
+      "ms": 11580
     },
     {
       "url": "https://www.youtube.com/",
@@ -233,19 +233,19 @@
       "title": "YouTube",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 11694
+      "ms": 13822
     },
     {
       "url": "https://www.google.com/",
       "loaded": true,
-      "snapshot": 4621,
+      "snapshot": 4688,
       "links": 15,
       "clicked": true,
       "status": 200,
       "title": "Google",
       "navigatedTo": "https://about.google/?fg=1&utm_source=google-US&utm_medium=referral&utm_campaign=hp-header",
       "pageErrors": [],
-      "ms": 18791
+      "ms": 19241
     },
     {
       "url": "https://duckduckgo.com/",
@@ -257,19 +257,19 @@
       "title": "DuckDuckGo - Protection. Privacy. Peace of mind.",
       "navigatedTo": "https://duckduckgo.com/about",
       "pageErrors": [],
-      "ms": 14473
+      "ms": 14718
     },
     {
       "url": "https://www.bing.com/",
       "loaded": true,
-      "snapshot": 36031,
-      "links": 49,
+      "snapshot": 36423,
+      "links": 47,
       "clicked": true,
       "status": 200,
       "title": "Search - Microsoft Bing",
       "navigatedTo": "https://www.bing.com/images?FORM=Z9LH",
       "pageErrors": [],
-      "ms": 9620
+      "ms": 9055
     },
     {
       "url": "https://www.apple.com/",
@@ -281,7 +281,7 @@
       "title": "Apple",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 8665
+      "ms": 9106
     },
     {
       "url": "https://www.microsoft.com/en-us/",
@@ -293,7 +293,7 @@
       "title": "Microsoft – AI, Cloud, Productivity, Computing, Gaming & Apps",
       "navigatedTo": "https://ignite.microsoft.com/en-US/home?wt.mc_ID=msignite26_ciarmar_corp_np_oo_DSM_Promo_Ignite",
       "pageErrors": [],
-      "ms": 46491
+      "ms": 46644
     },
     {
       "url": "https://www.cloudflare.com/",
@@ -305,7 +305,7 @@
       "title": "Cloudflare: Build for the agent era",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 3500
+      "ms": 3503
     },
     {
       "url": "https://archive.org/",
@@ -317,31 +317,31 @@
       "title": "Internet Archive: Digital Library of Free & Borrowable Texts, Movies, Music & Wa",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 4542
+      "ms": 6091
     },
     {
       "url": "https://www.imdb.com/",
       "loaded": true,
-      "snapshot": 156810,
-      "links": 76,
+      "snapshot": 23477,
+      "links": 70,
       "clicked": true,
       "status": 202,
       "title": "IMDb: Ratings, Reviews, and Where to Watch the Best Movies & TV Shows",
       "navigatedTo": "https://www.imdb.com/?ref_=hm_nv_home",
       "pageErrors": [],
-      "ms": 38596
+      "ms": 40830
     },
     {
       "url": "https://www.weather.gov/",
       "loaded": true,
-      "snapshot": 44853,
-      "links": 319,
+      "snapshot": 44355,
+      "links": 317,
       "clicked": true,
       "status": 200,
       "title": "National Weather Service",
       "navigatedTo": "(same page)",
       "pageErrors": [],
-      "ms": 4076
+      "ms": 4281
     },
     {
       "url": "https://www.craigslist.org/",
@@ -351,25 +351,21 @@
       "clicked": true,
       "status": 200,
       "title": "craigslist: myrtle beach jobs, apartments, for sale, services, community, and ev",
-      "navigatedTo": "https://www.craigslist.org/create/gRiMVbASZKhL1Vm8Dq7H4b/EAicQ?s=type",
+      "navigatedTo": "https://www.craigslist.org/create/eGX5sFB4TvniqzL4juqHdx/PXStX?s=type",
       "pageErrors": [],
-      "ms": 3846
+      "ms": 3626
     },
     {
       "url": "https://www.reddit.com/",
       "loaded": true,
-      "snapshot": 13299,
-      "links": 35,
+      "snapshot": 1173,
+      "links": 6,
       "clicked": true,
       "status": 200,
-      "title": "Reddit - The heart of the internet",
-      "navigatedTo": "https://www.reddit.com/",
-      "pageErrors": [
-        "Refused to load module `https://www.redditstatic.com/js/concat?prefix=en-US/&chunks=BMlnvMqNfR,CbkgaN-ov9,DGPisoaFEk` be",
-        "/www.redditstatic.com/js/concat?prefix=en-US/&chunks=BMlnvMqNfR,CbkgaN-ov9,DGPisoaFEk`: Refused to load module `https://",
-        "Refused to load module `https://www.redditstatic.com/js/concat?prefix=en-US/&chunks=BMlnvMqNfR,CbkgaN-ov9,DGPisoaFEk` be"
-      ],
-      "ms": 2946
+      "title": "Reddit - Prove your humanity",
+      "navigatedTo": "(same page)",
+      "pageErrors": [],
+      "ms": 2697
     }
   ]
 }
