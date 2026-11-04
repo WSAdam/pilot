@@ -116,7 +116,8 @@ url = { git = "https://github.com/lexmount/rust-url", rev = "ca9fcad2b99f20c30c2
 idna = { git = "https://github.com/lexmount/rust-url", rev = "ca9fcad2b99f20c30c28a618ad78410f6fd31161" }
 xml5ever = { git = "https://github.com/lexmount/html5ever", rev = "4574311c63e79bba7d4ddb98cb0562d8dad499ee" }
 curl = { git = "https://github.com/lexmount/curl-rust", rev = "0392e12475d8d1160d4cae07c172cac02797cc25" }
-curl-sys = { git = "https://github.com/lexmount/curl-rust", rev = "0392e12475d8d1160d4cae07c172cac02797cc25" }
+# pilot: lexmount's curl-sys with libcurl's HTTP/2 preface patched to Chrome's.
+curl-sys = { path = "vendor/curl-sys" }
 cookie = { git = "https://github.com/ldm0/cookie-rs", branch = "priority" }
 v8 = { path = "vendor/v8-152.2.0" }
 deno_v8 = { path = "vendor/deno_v8-0.3.0" }
@@ -129,6 +130,11 @@ stylo_static_prefs = { git = "https://github.com/lexmount/stylo", rev = "2fe93b2
 stylo_traits = { git = "https://github.com/lexmount/stylo", rev = "2fe93b20d5ba764842071c2290d0281805d80656" }
 svgtypes = { git = "https://github.com/lexmount/svgtypes", branch = "moli" }
 taffy = { git = "https://github.com/ldm0/taffy", rev = "0a337871fa44db7d48571b06668f92737eefa8c2" }
+
+# The git curl crate reaches curl-sys through its own repo; send it to the
+# vendored copy too.
+[patch."https://github.com/lexmount/curl-rust"]
+curl-sys = { path = "vendor/curl-sys" }
 
 [patch."https://github.com/DioxusLabs/taffy"]
 taffy = { git = "https://github.com/ldm0/taffy", rev = "0a337871fa44db7d48571b06668f92737eefa8c2" }
