@@ -81,3 +81,8 @@ Date: 2026-11-03
 pilot's libcurl opens HTTP/2 connections with Chrome's SETTINGS (values and order), Chrome's connection window and stream windows, and Chrome's pseudo-header order, so its Akamai HTTP/2 fingerprint is Chrome's. curl-sys is vendored in vendor/curl-sys to carry the patch to libcurl's http2.c and http.c.
 Why: bot defenses fingerprint the HTTP/2 preface alongside the TLS ClientHello; libcurl's own (MAX_CONCURRENT_STREAMS 100, a 1 GB window, :scheme before :authority) marks pilot as curl. Chrome's per-request HEADERS priority is not sent: nghttp2 1.68 no longer sends RFC 7540 priorities.
 Date: 2026-11-03
+
+## pilot sends a navigation's headers in Chrome's order
+A navigation's request headers go out in Chrome's order, with User-Agent and Accept-Encoding among them instead of first, and a top-level navigation over HTTP/2 carries Chrome's priority: u=0, i. Accept-Encoding is gzip, deflate, br: Chrome also offers zstd, which pilot's libcurl cannot decode.
+Why: bot defenses check that header order matches the browser the User-Agent names, and with Chrome's TLS and HTTP/2 fingerprints in place, libcurl's order was the remaining mismatch on the wire. Subresource requests keep Moli's order until Chrome's has been checked.
+Date: 2026-11-04

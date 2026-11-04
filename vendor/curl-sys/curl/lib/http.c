@@ -1919,6 +1919,11 @@ CURLcode Curl_add_custom_headers(struct Curl_easy *data,
               curlx_str_casecompare(&name, "Transfer-Encoding"))
         /* HTTP/2 does not support chunked requests */
         ;
+      else if((httpversion < 20) &&
+              curlx_str_casecompare(&name, "Priority"))
+        /* pilot: like Chrome, send RFC 9218 priority only on HTTP/2 and
+           later */
+        ;
       else if((curlx_str_casecompare(&name, "Authorization") ||
                curlx_str_casecompare(&name, "Cookie")) &&
               /* be careful of sending this potentially sensitive header to

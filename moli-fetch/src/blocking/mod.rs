@@ -1,4 +1,5 @@
 mod cache;
+mod chrome_order;
 mod collectors;
 
 use std::{
@@ -712,20 +713,29 @@ pub(crate) fn configure_easy(
         outgoing_headers = crate::RequestHeaders::from_byte_strings(&signed_headers)?;
     }
 
+    // pilot: libcurl sends the headers in Chrome's order (chrome_order.rs).
+    let mut wire_headers = outgoing_headers.to_vec();
+    if let Some(validation_headers) = validation_headers {
+        // Preserve cached response validator bytes in the conditional request.
+        wire_headers.extend(validation_headers);
+    }
+    let navigation = if !request.is_navigation_request() {
+        chrome_order::Navigation::None
+    } else if request.is_top_level_navigation_request() {
+        chrome_order::Navigation::TopLevel
+    } else {
+        chrome_order::Navigation::Subframe
+    };
+    let wire_headers = chrome_order::wire_headers(
+        wire_headers,
+        request.browser_identity(config).user_agent(),
+        navigation,
+    );
     let mut has_content_type_header = false;
-    for (name, value) in outgoing_headers.iter() {
+    for (name, value) in &wire_headers {
         has_content_type_header |= name.eq_ignore_ascii_case("content-type");
         append_curl_request_header(&mut headers, name, value)
             .context("failed to build request header")?;
-    }
-    if let Some(validation_headers) = validation_headers {
-        // Preserve cached response validator bytes in the conditional request.
-        let validation_headers = crate::RequestHeaders::from_bytes(validation_headers);
-        for (name, value) in validation_headers.iter() {
-            has_content_type_header |= name.eq_ignore_ascii_case("content-type");
-            append_curl_request_header(&mut headers, name, value)
-                .context("failed to build cache validation request header")?;
-        }
     }
     if !has_content_type_header {
         // BodyInit and caller headers determine whether Content-Type is present.
