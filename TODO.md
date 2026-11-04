@@ -117,3 +117,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Navigation requests go out in Chrome's header order, with User-Agent and Accept-Encoding (gzip, deflate, br) in moli-fetch's own list and priority: u=0, i on top-level navigations over HTTP/2 only (moli-fetch/src/blocking/chrome_order.rs)
 - [ ] HTTP/1.1 requests send Connection: keep-alive right after Host, as Chrome does; libcurl writes Connection last, so this needs libcurl's request header writer reordered
 - [ ] Subresource requests (scripts, styles, images, fetch) go out in Chrome's header order; today only navigations are sorted, because Chrome's subresource order has not been checked against a real Chrome
+- [ ] eBay still answers 403 with Chrome's header order too (2026-11-04): Akamai refuses the first request from a fresh profile before any script runs (compat/bot-walls.md)
+- [ ] pilot's browser identity names the host's OS: on a Mac the User-Agent, Sec-CH-UA-Platform and navigator.platform say macOS, matching the TCP/IP fingerprint, instead of Moli's default Windows
