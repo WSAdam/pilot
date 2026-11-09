@@ -5,7 +5,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 ## M0: Fork, build and baseline
 - [x] Fork lexmount/moli to WSAdam/moli, clone here with an upstream remote, GitHub Actions disabled on the fork
 - [x] Release build of moli succeeds on macOS arm64 (cargo build --release -p moli)
-- [ ] Pinned baseline of workspace nextest and moli-cdp-smoke results recorded in docs/baseline.md
+- [x] Pinned baseline of workspace nextest and moli-cdp-smoke results recorded in docs/baseline.md
 - [x] DECISIONS.md, FORK.md and docs/playwright-contract.md committed
 - [x] Walking skeleton: Playwright MCP --cdp-endpoint drives `moli serve --layout` on a static page — navigate, snapshot, click (needs live run)
 - [ ] Baseline benchmark in bench/: CDP-ready time, RSS for 1 and 25 contexts, goto-to-first-MCP-snapshot time, compared with chrome-headless-shell
@@ -44,7 +44,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Full-page screenshots taller than 65,535 px succeed via tiling
 - [ ] Runtime.executionContextCreated auxData carries type default/isolated
 - [ ] Fetch interception edge cases needed for MCP --allowed-origins pass (#280)
-- [ ] Playwright tests/mcp pass rate against pilot recorded in compat/
+- [x] Playwright tests/mcp pass rate against pilot recorded in compat/
 - [ ] Playwright chromium-page test pass rate against pilot (CRPATH) recorded in compat/
 - [ ] Golden CDP transcripts: each MCP tool's traffic on pilot diffed against real Chromium
 
@@ -54,8 +54,8 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] bench/ thresholds gate CDP-ready time, RSS per context, MCP snapshot latency and 25 parallel contexts
 
 ## M6: v1 compatibility suite and the open-web ladder
-- [ ] compat/v1-suite.md defines the v1 compatibility suite
-- [ ] TodoMVC React, Vue, Angular and Svelte flows pass through Playwright MCP tools on pilot
+- [x] compat/v1-suite.md defines the v1 compatibility suite
+- [x] TodoMVC React, Vue, Angular and Svelte flows pass through Playwright MCP tools on pilot
 - [ ] The user's own sprig/Fresh apps pass through Playwright MCP tools on pilot
 - [ ] Open-web corpus (~100 sites incl. Gmail, Docs, YouTube) pass rate tracked per release in compat/report.json
 - [ ] Linux headless: M1 and M2 tests pass in a Linux container (needs live run)
@@ -103,7 +103,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Playwright's injected script is compiled once per process instead of once per page (a V8 code cache for large Runtime.evaluate sources, which today go through V8's inspector), so the first MCP snapshot on a new page costs about what a repeat snapshot does
 - [x] Correction to the macOS file chooser line: the browser reports the right size; moli-cdp-smoke wrote upload.TXT over upload.txt on macOS's case-insensitive file system. The group now uses its own directory for those files and smoke is 54/54 on macOS
 - [ ] Navigation requests match Chrome's header order and Accept-Encoding (gzip, deflate, br, zstd), with Connection: keep-alive on HTTP/1.1; today libcurl's order and "deflate, gzip, br" show (a lead for the bot-walled sites; TLS and HTTP/2 fingerprints are the bigger signal)
-- [ ] Playwright's own tests/mcp suite runs against pilot (PLAYWRIGHT_MCP_EXECUTABLE_PATH) with its pass rate in compat/; needs permission to fetch microsoft/playwright at 018adb570 and run its npm ci
+- [x] Playwright's own tests/mcp suite runs against pilot (PLAYWRIGHT_MCP_EXECUTABLE_PATH) with its pass rate in compat/; needs permission to fetch microsoft/playwright at 018adb570 and run its npm ci
 - [x] Playwright's own tests/mcp suite ran against pilot (compat/playwright-mcp-suite.json): 553 passed, 124 failed, 153 skipped; 76 failures are harness causes (test-mcp server, browser-type lookup, bundled Chromium), 48 are candidates for pilot gaps
 - [ ] The 48 candidate failures in compat/playwright-mcp-suite.json are triaged: each is a pilot gap (fixed with a conformance test) or a legitimate Chrome-only difference (noted)
 - [x] A server that ends a close-delimited response (no Content-Length) by closing TCP without a TLS close_notify fails the navigation with curl error 56 (Craigslist's 302); Chrome treats the response as complete
@@ -118,4 +118,10 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] HTTP/1.1 requests send Connection: keep-alive right after Host, as Chrome does; libcurl writes Connection last, so this needs libcurl's request header writer reordered
 - [ ] Subresource requests (scripts, styles, images, fetch) go out in Chrome's header order; today only navigations are sorted, because Chrome's subresource order has not been checked against a real Chrome
 - [ ] eBay still answers 403 with Chrome's header order too (2026-11-04): Akamai refuses the first request from a fresh profile before any script runs (compat/bot-walls.md)
-- [ ] pilot's browser identity names the host's OS: on a Mac the User-Agent, Sec-CH-UA-Platform and navigator.platform say macOS, matching the TCP/IP fingerprint, instead of Moli's default Windows
+- [x] pilot's browser identity names the host's OS: on a Mac the User-Agent, Sec-CH-UA-Platform and navigator.platform say macOS, matching the TCP/IP fingerprint, instead of Moli's default Windows
+- [ ] Runtime.consoleAPICalled carries a timestamp in milliseconds since the epoch, as Chrome does; pilot sends 0, so Playwright MCP's console log reads [-1793731413422ms] and drops the warning line (console.spec)
+- [ ] Runtime.exceptionThrown carries its timestamp in milliseconds since the epoch; pilot sends seconds
+- [ ] An uncaught error thrown by an inline script while the page loads reaches Playwright as a pageerror and Runtime.exceptionThrown (Playwright MCP console.spec "page error")
+- [ ] An uncaught error thrown by an event handler (onclick, addEventListener) reaches Playwright as a pageerror and Runtime.exceptionThrown
+- [ ] A page error's message is the error's own message (timer blank), not Moli's dispatch text (timer callback dispatch failed: callback `Window Web IDL callback` threw: <unknown>: Uncaught Error: timer blank)
+- [ ] Record→replay fast path: the first run of a task drives pilot and records the requests each action fires; later runs replay them through pilot's network stack (cookies, Chrome TLS/HTTP/2), falling back to the browser when a replay fails (planned after the MCP gaps, 2026-11-04)
