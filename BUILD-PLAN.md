@@ -7,7 +7,7 @@ Every remaining piece of work, grouped by the build it needs, so each RAM-heavy 
 | Build | Kind | Status | Units | Peak RSS | Wall time | target/ after | Commits |
 |---|---|---|---|---|---|---|---|
 | 0 | none | done; open-web re-measure moved to Build 1 (72 MB free on 2026-11-09) | host-OS identity, TODO, this file | — | — | 5.2 GB (release only) | daa26d280, 06f7f448c, this commit |
-| 1 | heavy | ready: fix written, 2 conformance tests red | console and uncaught errors; open-web re-measure | | | | |
+| 1 | heavy | ready, on hold: 5.1 GB free on 2026-11-09, about 7 GB needed. Fix written, 2 conformance tests red, FORK row added. Release built with 16 codegen units. | console and uncaught errors; open-web re-measure | | | | |
 | triage | none | queued | 45 Playwright MCP suite candidates | — | | — | |
 | 2 | light | queued | protocol-side suite gaps | | | | |
 | 3 | heavy | queued | renderer-side suite gaps, meta viewport | | | | |
@@ -28,7 +28,8 @@ Every remaining piece of work, grouped by the build it needs, so each RAM-heavy 
   - at least 40 GB of disk free;
   - `cargo clean --profile dev` if `Cargo.lock` or `vendor/` changed, or if `target/debug` is over 30 GB.
 - **During a build:**
-  - one fail-fast script with `CARGO_BUILD_JOBS=1`, and each cargo step under `/usr/bin/time -l`;
+  - one fail-fast script, `scripts/pilot-build-gate.sh <label> <nextest packages…>`, for example `scripts/pilot-build-gate.sh build1 moli-renderer-v8 moli-core moli-protocol moli-protocol-server moli pilot pilot-window`;
+  - in that script: `CARGO_BUILD_JOBS=1`, a time limit on every step, the peak rustc RSS sampled every 10 s, logs in `target/build-logs/<label>/`, and release built with 16 codegen units;
   - nothing else runs alongside it;
   - a step past twice its time budget is killed.
 - **Afterwards:**
@@ -92,6 +93,7 @@ The batches below are my expected split. Triage confirms it.
 | Webstorage capability | 1 |
 | CLI isolated and persistent sessions, config, roots, secrets, tracing, file-upload roots | about 14, mostly expected to be harness and need no build |
 | Protocol TODOs: about:blank start page, `HeadlessChrome` user agent, execution-context `auxData`, refs for a second MCP session | — |
+| Moli's own `Runtime.exceptionThrown` and `Runtime.consoleAPICalled` carry milliseconds since the epoch, not monotonic seconds (`moli-protocol` `observable_output` `emit_background_events`). After Build 1 this path carries only internal dispatch failures. | TODO bug |
 
 ### Build 3: heavy batch, renderer gaps
 | Item | Candidates |
