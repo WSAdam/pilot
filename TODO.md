@@ -126,3 +126,4 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] A page error's message is the error's own message (timer blank), not Moli's dispatch text (timer callback dispatch failed: callback `Window Web IDL callback` threw: <unknown>: Uncaught Error: timer blank)
 - [ ] Record→replay fast path: the first run of a task drives pilot and records the requests each action fires; later runs replay them through pilot's network stack (cookies, Chrome TLS/HTTP/2), falling back to the browser when a replay fails (planned after the MCP gaps, 2026-11-04)
 - [ ] pilot builds run on GitHub (.github/workflows/pilot-gate.yml): the Linux and macOS jobs pass on gate/build1 and the macOS binary downloads into target/release (needs live run)
+- [ ] A timer error still reaches Log.entryAdded and Console.messageAdded after the console fix, without a second Runtime.exceptionThrown (upstream moli-protocol log and console tests; broke in gate run 2)

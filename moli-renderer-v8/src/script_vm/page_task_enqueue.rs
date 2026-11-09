@@ -844,11 +844,22 @@ impl ScriptVm {
         self.document_runtime.next_timeout_deadline()
     }
 
-    /// pilot: records a warning in the durable CLI/diagnostic history only,
-    /// for failures DevTools already heard about through the Inspector.
+    /// pilot: like `record_runtime_warning`, for a failure DevTools already
+    /// heard about through the Inspector. The warning still reaches the
+    /// diagnostic history and the Log and Console domains, but its live
+    /// observation carries no execution context, so Moli emits no second
+    /// `Runtime.exceptionThrown` (a duplicate Playwright pageerror carrying
+    /// Moli's dispatch text) for it.
     pub(crate) fn record_runtime_diagnostic(&mut self, message: std::fmt::Arguments<'_>) {
+        let text = message.to_string();
         self.runtime_observable_source_queue
-            .record_lifecycle_error(message.to_string());
+            .record_lifecycle_error(text.clone());
+        self._context_host.borrow().append_live_turn_observation(
+            crate::runtime::RendererProtocolObservation::RuntimeLifecycleError {
+                text,
+                execution_context_id: None,
+            },
+        );
     }
 
     pub(crate) fn record_runtime_warning(&mut self, message: std::fmt::Arguments<'_>) {

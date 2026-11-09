@@ -69,7 +69,8 @@ impl ScriptVm {
         let result = self.run_next_timeout_body(selection)?;
         if let HostTimeoutRunResult::CallbackError(error) = &result {
             // pilot: the window error dispatch already reported the exception
-            // to DevTools; keep only the diagnostic history here.
+            // to DevTools; keep the Log and Console entries, without a second
+            // Runtime.exceptionThrown.
             self.record_runtime_diagnostic(format_args!("timer callback dispatch failed: {error}"));
         }
         Ok(result)
