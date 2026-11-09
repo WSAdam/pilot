@@ -182,7 +182,10 @@ impl InspectorOutbound {
         let message_units = view.len();
         let message_width = if view.is_8bit() { 8 } else { 16 };
         match moli_v8_util::decode_inspector_protocol_message(view) {
-            Ok(value) => self.push_value(value),
+            Ok(mut value) => {
+                stamp_inspector_event_time(&mut value);
+                self.push_value(value)
+            }
             Err(error) => {
                 let raw = moli_v8_util::inspector_protocol_message_text(view);
                 tracing::warn!(target: "moli::cdp::inspector",
@@ -772,6 +775,33 @@ impl Drop for InspectorInternalDispatchResponseCapture {
             .checked_sub(1)
             .expect("runtime command output suppression depth underflow");
     }
+}
+
+/// pilot: V8 stamps console and exception events with its client's clock,
+/// and Moli's client has none, so V8 sends 0. Chrome's clock is milliseconds
+/// since the epoch. The event is pushed while the console call or the
+/// exception report runs, so now is its time.
+fn stamp_inspector_event_time(value: &mut Value) {
+    if !matches!(
+        value.get("method").and_then(Value::as_str),
+        Some("Runtime.consoleAPICalled" | "Runtime.exceptionThrown")
+    ) {
+        return;
+    }
+    let Some(params) = value.get_mut("params").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if params
+        .get("timestamp")
+        .and_then(Value::as_f64)
+        .is_some_and(|timestamp| timestamp != 0.0)
+    {
+        return;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1_000.0);
+    params.insert("timestamp".to_owned(), Value::from(now));
 }
 
 #[cfg(test)]

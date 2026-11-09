@@ -137,6 +137,7 @@ pub(crate) fn dispatch_window_error_event_with_details<'s>(
     error_value: Option<v8::Local<'s, v8::Value>>,
 ) -> std::result::Result<(), String> {
     ensure_window_reflecting_body_onerror_handler(scope);
+    let (message_text, filename_text, has_error_value) = (message, filename, error_value.is_some());
     let error_value = error_value.unwrap_or_else(|| v8::null(scope).into());
 
     let message = v8_string(scope, message)
@@ -170,6 +171,21 @@ pub(crate) fn dispatch_window_error_event_with_details<'s>(
         return Ok(());
     }
     runtime.dispatch_public_event(scope, host_ptr, EventTargetHandle::Window, event)?;
+    // pilot: an exception no handler canceled is reported to the developer
+    // console, which is how it reaches Playwright as a page error.
+    let canceled = crate::context_bootstrap::event_backing(scope, event)
+        .get(scope, v8str(scope, "defaultPrevented").into())
+        .is_some_and(|value| value.boolean_value(scope));
+    if has_error_value && !canceled {
+        crate::script_vm::report_uncaught_exception_to_devtools(
+            scope,
+            message_text,
+            filename_text,
+            lineno,
+            colno,
+            error_value,
+        );
+    }
 
     let global = scope.get_current_context().global(scope);
     let global_value: v8::Local<'_, v8::Value> = global.into();

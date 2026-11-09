@@ -267,3 +267,56 @@ test('pilot is Chrome on the host OS in its requests and its navigator', { timeo
     await new Promise((done) => server.close(done));
   }
 });
+
+// 2026-11-04: uncaught errors from inline scripts and event handlers never
+// reached Playwright, and timer errors arrived wrapped in Moli's dispatch text
+// (Playwright MCP console.spec "page error"): Moli dispatched the window
+// error event but never reported the exception to the developer console.
+test('uncaught errors reach Playwright as page errors with their own message', { timeout: 60_000 }, async () => {
+  const server = createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<!DOCTYPE html><script>throw new Error("inline at load");</script><button onclick="throw new Error(\'click handler\')">b</button>');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error));
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    await page.click('button');
+    await page.evaluate(() => setTimeout(() => { throw new TypeError('from a timer'); }, 0));
+    await page.waitForTimeout(500);
+    assert.deepEqual(errors.map((error) => `${error.name}: ${error.message}`), [
+      'Error: inline at load',
+      'Error: click handler',
+      'TypeError: from a timer',
+    ]);
+    assert.match(errors[0].stack, /inline at load\n\s+at /, 'the stack is the error\'s own');
+  } finally {
+    await browser.close();
+    await new Promise((done) => server.close(done));
+  }
+});
+
+// 2026-11-04: console messages carried timestamp 0, so Playwright MCP's
+// console log read [-1793731413422ms] and dropped lines.
+test('console messages carry the time they were logged', { timeout: 60_000 }, async () => {
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    const messages = [];
+    page.on('console', (message) => messages.push(message));
+    const before = Date.now();
+    await page.evaluate(() => { console.warn('warned'); console.error('failed'); });
+    await page.waitForTimeout(200);
+    const after = Date.now();
+    assert.deepEqual(messages.map((message) => `${message.type()} ${message.text()}`), ['warning warned', 'error failed']);
+    for (const message of messages) {
+      const timestamp = message.timestamp();
+      assert.ok(timestamp >= before - 1_000 && timestamp <= after + 1_000, `${message.text()} logged at ${timestamp}, between ${before} and ${after}`);
+    }
+  } finally {
+    await browser.close();
+  }
+});

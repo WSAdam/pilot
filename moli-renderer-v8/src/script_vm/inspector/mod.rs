@@ -31,7 +31,7 @@ pub(in crate::script_vm) use self::v8_backend::RendererInspectorIsolateBackend;
 pub(in crate::script_vm) use self::v8_backend::finish_page_close_termination;
 pub(crate) use self::v8_backend::{
     RendererInspectorIsolateBackendHandle, dispatch_inspector_io_owner_wake,
-    dispatch_inspector_main_owner_wake,
+    dispatch_inspector_main_owner_wake, report_uncaught_exception_to_devtools,
 };
 use crate::devtools::target::RendererDevToolsTargetHandle;
 #[cfg(test)]

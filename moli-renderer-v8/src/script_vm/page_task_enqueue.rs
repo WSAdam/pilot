@@ -844,6 +844,13 @@ impl ScriptVm {
         self.document_runtime.next_timeout_deadline()
     }
 
+    /// pilot: records a warning in the durable CLI/diagnostic history only,
+    /// for failures DevTools already heard about through the Inspector.
+    pub(crate) fn record_runtime_diagnostic(&mut self, message: std::fmt::Arguments<'_>) {
+        self.runtime_observable_source_queue
+            .record_lifecycle_error(message.to_string());
+    }
+
     pub(crate) fn record_runtime_warning(&mut self, message: std::fmt::Arguments<'_>) {
         let text = message.to_string();
         let execution_context_id = self.runtime_observable_default_execution_context_id();

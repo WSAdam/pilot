@@ -704,6 +704,50 @@ impl v8::inspector::V8InspectorClientImpl for RendererInspectorClient {
 
 struct RendererInspectorIsolateBackendIdentity;
 
+/// pilot: the isolate's Inspector, for exceptions reported outside a session.
+struct RendererInspectorExceptionSink(Weak<v8::inspector::V8Inspector>);
+
+/// pilot: reports an exception that no `error` event handler canceled to the
+/// developer console, as the end of HTML's "report an exception" does in
+/// Chrome. Every session with Runtime enabled gets `Runtime.exceptionThrown`
+/// with the exception as a remote object, so Playwright sees a `pageerror`
+/// with the error's own name, message and stack; V8 also replays it to a
+/// session that enables Runtime later.
+pub(crate) fn report_uncaught_exception_to_devtools(
+    scope: &mut v8::PinScope<'_, '_>,
+    message: &str,
+    url: &str,
+    line_number: u32,
+    column_number: u32,
+    exception: v8::Local<'_, v8::Value>,
+) {
+    let Some(inspector) = scope
+        .get_slot::<RendererInspectorExceptionSink>()
+        .and_then(|sink| sink.0.upgrade())
+    else {
+        return;
+    };
+    let context = scope.get_current_context();
+    let stack_trace =
+        inspector.create_stack_trace(v8::Exception::get_stack_trace(scope, exception));
+    let detailed_message = if message.starts_with("Uncaught") {
+        message.to_owned()
+    } else {
+        format!("Uncaught {message}")
+    };
+    inspector.exception_thrown(
+        context,
+        v8::inspector::StringView::from(b"Uncaught".as_slice()),
+        exception,
+        v8::inspector::StringView::from(detailed_message.as_bytes()),
+        v8::inspector::StringView::from(url.as_bytes()),
+        line_number,
+        column_number,
+        stack_trace,
+        0,
+    );
+}
+
 /// Opaque reference tying a renderer agent to its isolate's Inspector backend.
 ///
 /// The reference deliberately exposes no V8 operations. The document-isolate
@@ -735,7 +779,7 @@ impl std::fmt::Debug for RendererInspectorIsolateBackendHandle {
 
 pub(in crate::script_vm) struct RendererInspectorIsolateBackend {
     identity: Rc<RendererInspectorIsolateBackendIdentity>,
-    inspector: v8::inspector::V8Inspector,
+    inspector: Rc<v8::inspector::V8Inspector>,
     pub(super) context_registry: DocumentInspectorContextRegistry,
     unique_id_state: Rc<RendererInspectorClientUniqueIdState>,
     target: RendererDevToolsTargetHandle,
@@ -783,9 +827,16 @@ impl RendererInspectorIsolateBackend {
             isolate.set_slot(identity.clone()),
             "one Inspector backend must own this isolate"
         );
+        let inspector = Rc::new(v8::inspector::V8Inspector::create(
+            isolate,
+            inspector_client,
+        ));
+        // pilot: HTML's "report an exception" reaches the Inspector from
+        // outside any session (report_uncaught_exception_to_devtools).
+        isolate.set_slot(RendererInspectorExceptionSink(Rc::downgrade(&inspector)));
         Self {
             identity,
-            inspector: v8::inspector::V8Inspector::create(isolate, inspector_client),
+            inspector,
             context_registry,
             unique_id_state,
             target,
