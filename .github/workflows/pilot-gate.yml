@@ -79,7 +79,12 @@ jobs:
         run: /usr/bin/time -v cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: nextest
-        run: /usr/bin/time -v cargo nextest run --workspace --profile ci
+        run: /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
+
+      - name: nextest (moli fetch CLI, one test at a time)
+        # These tests give a whole debug-binary fetch 350 ms. Alongside 4 parallel
+        # tests on the shared runner, the page hadn't loaded by then (gate run 2).
+        run: cargo nextest run --workspace --profile ci -E 'binary(fetch_cli)' --test-threads 1
 
       - name: Release build
         env:
@@ -117,6 +122,10 @@ jobs:
 
   macos:
     name: macOS - release build, conformance
+    # GitHub's macOS arm64 machines are scarce ("not acquired by Runner" on gate
+    # run 2), so this runs only after Linux passes, and alone it can be re-run
+    # with `gh run rerun <run-id> --failed`.
+    needs: linux
     runs-on: macos-15
     timeout-minutes: 240
     env:
