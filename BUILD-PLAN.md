@@ -1,13 +1,15 @@
 # pilot build plan
 
-Every remaining piece of work, grouped by the build it needs, so each RAM-heavy compile is planned and you approve it. Written 2026-11-09. Nothing here runs without your go.
+Every remaining piece of work, grouped by the build it needs. Written 2026-11-09.
+
+**Since 2026-11-09 every build runs on GitHub, in `.github/workflows/pilot-gate.yml`. Your Mac compiles nothing.** The reason is in DECISIONS.md under "pilot compiles on GitHub, not on the Mac".
 
 ## Ledger
 
 | Build | Kind | Status | Units | Peak RSS | Wall time | target/ after | Commits |
 |---|---|---|---|---|---|---|---|
 | 0 | none | done; open-web re-measure moved to Build 1 (72 MB free on 2026-11-09) | host-OS identity, TODO, this file | — | — | 5.2 GB (release only) | daa26d280, 06f7f448c, this commit |
-| 1 | heavy | ready, on hold: 5.1 GB free on 2026-11-09, about 7 GB needed. Fix written, 2 conformance tests red, FORK row added. Release built with 16 codegen units. | console and uncaught errors; open-web re-measure | | | | |
+| 1 | heavy | running on GitHub (`gate/build1`), the first gate run there. It was on hold locally: 5.1 GB free, about 7 GB needed. | pilot gate workflow; console and uncaught errors; open-web re-measure | | | | |
 | triage | none | queued | 45 Playwright MCP suite candidates | — | | — | |
 | 2 | light | queued | protocol-side suite gaps | | | | |
 | 3 | heavy | queued | renderer-side suite gaps, meta viewport | | | | |
@@ -18,25 +20,21 @@ Every remaining piece of work, grouped by the build it needs, so each RAM-heavy 
 | opt | heavy | only on request | network-fingerprint leftovers | | | | |
 
 **How a build moves through it:**
-- **Status:** `queued → ready → approved → running → done`, or `failed` with the step that failed.
+- **Status:** `queued → ready → running → done`, or `failed` with the step that failed.
 - **ready** means every fix in the batch is written, and its conformance tests are red against `target/release/pilot`.
-- **Approval:**
-  - A heavy build waits for a Shepherd card (Run now / Hold).
-  - A light build waits for a card until the first one is measured. After that, if the peak stayed under about 2 GB, light builds run without asking.
-- **Before a build:**
-  - at least 7 GB of RAM free or reclaimable;
-  - at least 40 GB of disk free;
-  - `cargo clean --profile dev` if `Cargo.lock` or `vendor/` changed, or if `target/debug` is over 30 GB.
-- **During a build:**
-  - one fail-fast script, `scripts/pilot-build-gate.sh <label> <nextest packages…>`, for example `scripts/pilot-build-gate.sh build1 moli-renderer-v8 moli-core moli-protocol moli-protocol-server moli pilot pilot-window`;
-  - in that script: `CARGO_BUILD_JOBS=1`, a time limit on every step, the peak rustc RSS sampled every 10 s, logs in `target/build-logs/<label>/`, and release built with 16 codegen units;
-  - nothing else runs alongside it;
-  - a step past twice its time budget is killed.
-- **Afterwards:**
-  - one commit per unit, then push;
-  - TODO lines ticked;
-  - this row filled in.
-- **If a unit fails:** it's pulled out of the batch. The rebuild without it gets its own card.
+- **Run:**
+  1. Run `cargo fmt --all` locally. It only reformats files and compiles nothing.
+  2. Commit each unit on a `gate/<label>` branch, then push the branch. The push starts `pilot-gate.yml`.
+  3. **Linux job** (16 GB runner): `cargo fmt --check`, clippy `-D warnings`, nextest on the whole workspace, the release build with 16 codegen units, and the CDP smoke.
+  4. **macOS job** (macos-15): the same release build, then the conformance suite against it. It uploads `pilot` and `moli` as the `pilot-macos-aarch64` artifact.
+  5. A background `gh run watch` reports back when both jobs finish. It uses no real memory.
+- **Both green:**
+  - the macOS binaries are downloaded into `target/release/`;
+  - the MCP sweep, plus open-web when the batch needs it, runs locally against them (pilot uses about 200 MB);
+  - main is fast-forwarded to the gate branch and pushed, and the gate branch is deleted;
+  - TODO lines are ticked and this row is filled in with the run link and the job times.
+- **Either red:** main doesn't move. The failing unit is fixed or pulled out, and the branch is pushed again.
+- `scripts/pilot-build-gate.sh` stays as a local fallback for when GitHub is unavailable. It needs about 7 GB free.
 
 ## What a build costs
 
@@ -46,7 +44,9 @@ Every remaining piece of work, grouped by the build it needs, so each RAM-heavy 
 | **Light** | Changes only above the renderer: `moli-core`, `moli-protocol*`, `moli`, `pilot`, `pilot-window`. The renderer is reused, so only those crates recompile and relink. | not measured yet; well under a heavy build | not measured yet |
 | **Heavy** | Any change in `moli-renderer-v8` or a crate below it: dom, layout, fetch, curl, vendored curl-sys, cookie jar, paint, image, webmcp, browser profile | **about 6–7 GB per rustc of the renderer**. A full gate compiles it about 4 times, one after another: clippy, dev lib, dev test target, release. | **about 50 min** for the full gate |
 
-**Rules for every build**
+**On GitHub, light and heavy cost the same.** Each gate run compiles everything from scratch, and your Mac uses nothing either way. Batching still matters, because one gate run takes a couple of hours to report back. The peak-RAM figures above only apply to the local fallback.
+
+**Local rules (the fallback, and the history behind the move)**
 - One build at a time, `CARGO_BUILD_JOBS=1`, with no sweep, test run or other cargo command alongside it.
 - Before a heavy build:
   - at least 7 GB free or reclaimable (`top -l 1 | grep PhysMem`);

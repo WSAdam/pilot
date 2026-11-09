@@ -91,3 +91,12 @@ Date: 2026-11-04
 pilot's User-Agent, client hints and navigator.platform name the host OS: Chrome on macOS on a Mac, on Linux on Linux, on Windows on Windows (pilot/src/identity.rs). The User-Agent is Chrome's reduced one, Chrome/<major>.0.0.0; the full version appears only in Sec-CH-UA-Full-Version-List, as in Chrome. Moli's own default (Chrome on Windows, with the full build in the User-Agent) is unchanged for moli itself.
 Why: bot defenses compare the claimed OS with the TCP/IP fingerprint, which names the real one, and real Chrome has not sent its full build in the User-Agent since its user-agent reduction. The screen and other device values stay Moli's defaults for now.
 Date: 2026-11-04
+
+## pilot compiles on GitHub, not on the Mac
+Every build runs in `.github/workflows/pilot-gate.yml` on GitHub's machines.
+- **Linux job:** fmt, clippy, the whole nextest suite, the release build and the CDP smoke.
+- **macOS job:** the release build and the conformance suite, then it uploads the Mac binaries.
+- **Order:** work is committed on a `gate/<label>` branch, and main is fast-forwarded to it only when both jobs pass. So AGENTS.md's checks run before main moves, not on the Mac before each commit.
+- **The original project's own workflows** are disabled in this repo: they need its self-hosted runners.
+Why: moli-renderer-v8 is one 1.35M-line crate, so one rustc of it peaks at 6–7 GB whatever the change. Local builds swapped the user's 16 GB Mac and filled its disk. The repo is public, so GitHub's runners cost nothing.
+Date: 2026-11-09
