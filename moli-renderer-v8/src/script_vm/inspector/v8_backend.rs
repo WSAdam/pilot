@@ -727,7 +727,14 @@ pub(crate) fn report_uncaught_exception_to_devtools(
     else {
         return;
     };
-    let context = scope.get_current_context();
+    // Report in the realm the error was created in, as Blink does with the
+    // exception's script state. From inline scripts and event handlers V8 sent
+    // the report without the error object (gate run 3), which it does when it
+    // cannot wrap the value for the session in the context it was given.
+    let context = v8::Local::<v8::Object>::try_from(exception)
+        .ok()
+        .and_then(|object| object.get_creation_context(scope))
+        .unwrap_or_else(|| scope.get_current_context());
     let stack_trace =
         inspector.create_stack_trace(v8::Exception::get_stack_trace(scope, exception));
     let detailed_message = if message.starts_with("Uncaught") {
