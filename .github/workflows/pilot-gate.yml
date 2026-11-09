@@ -9,6 +9,11 @@ on:
   push:
     branches: ["gate/**"]
   workflow_dispatch:
+    inputs:
+      macos_only:
+        description: Skip Linux and run only the macOS job (diagnosis rounds; landing needs a full run)
+        type: boolean
+        default: false
 
 concurrency:
   group: pilot-gate-${{ github.ref }}
@@ -27,6 +32,8 @@ env:
 jobs:
   linux:
     name: Linux - fmt, clippy, nextest, release, CDP smoke
+    # gate/mac-<label> branches run only the macOS job (diagnosis rounds).
+    if: ${{ !inputs.macos_only && !startsWith(github.ref_name, 'gate/mac-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 330
     env:
@@ -126,6 +133,7 @@ jobs:
     # run 2), so this runs only after Linux passes, and alone it can be re-run
     # with `gh run rerun <run-id> --failed`.
     needs: linux
+    if: ${{ !cancelled() && (needs.linux.result == 'success' || inputs.macos_only || startsWith(github.ref_name, 'gate/mac-')) }}
     runs-on: macos-15
     timeout-minutes: 240
     env:
@@ -150,6 +158,20 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: /usr/bin/time -l cargo build --release -p moli -p pilot
 
+      # Uploaded before conformance, so a failing test still leaves a binary to
+      # debug on the Mac without compiling there.
+      - name: Package macOS binaries
+        run: tar -C target/release -czf pilot-macos-aarch64.tar.gz pilot moli
+
+      - name: Upload macOS binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pilot-macos-aarch64
+          path: pilot-macos-aarch64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Install Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -163,15 +185,3 @@ jobs:
           set -euo pipefail
           npm ci
           node --test --test-concurrency=1 --test-reporter=spec
-
-      - name: Package macOS binaries
-        run: tar -C target/release -czf pilot-macos-aarch64.tar.gz pilot moli
-
-      - name: Upload macOS binaries
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pilot-macos-aarch64
-          path: pilot-macos-aarch64.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
