@@ -283,15 +283,24 @@ test('uncaught errors reach Playwright as page errors with their own message', {
     const page = await (await browser.newContext()).newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error));
+    // The raw CDP events behind those page errors, printed only on failure
+    // (gate run 3: inline and click errors arrived without the error object).
+    const raw = [];
+    const cdp = await page.context().newCDPSession(page);
+    cdp.on('Runtime.executionContextCreated', ({ context }) => raw.push({ contextCreated: { id: context.id, name: context.name, origin: context.origin, auxData: context.auxData } }));
+    cdp.on('Runtime.executionContextDestroyed', ({ executionContextId }) => raw.push({ contextDestroyed: executionContextId }));
+    cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => raw.push({ exceptionThrown: { text: exceptionDetails.text, executionContextId: exceptionDetails.executionContextId, url: exceptionDetails.url, hasException: Boolean(exceptionDetails.exception), description: exceptionDetails.exception?.description?.split('\n')[0] } }));
+    await cdp.send('Runtime.enable');
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.click('button');
     await page.evaluate(() => setTimeout(() => { throw new TypeError('from a timer'); }, 0));
     await page.waitForTimeout(500);
-    assert.deepEqual(errors.map((error) => `${error.name}: ${error.message}`), [
+    const pageErrors = errors.map((error) => `${error.name}: ${error.message}`);
+    assert.deepEqual(pageErrors, [
       'Error: inline at load',
       'Error: click handler',
       'TypeError: from a timer',
-    ]);
+    ], `page errors ${JSON.stringify(pageErrors)}\nraw CDP ${JSON.stringify(raw, null, 1)}`);
     assert.match(errors[0].stack, /inline at load\n\s+at /, 'the stack is the error\'s own');
   } finally {
     await browser.close();
