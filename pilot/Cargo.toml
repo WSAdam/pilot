@@ -14,6 +14,7 @@ path = "src/main.rs"
 anyhow = "1.0.100"
 clap = { version = "4.5.39", features = ["derive", "env"] }
 moli = { path = "../moli" }
+moli-browser-profile = { path = "../moli-browser-profile" }
 moli-core = { path = "../moli-core" }
 moli-process-signal = { path = "../moli-process-signal" }
 moli-protocol-server = { path = "../moli-protocol-server" }

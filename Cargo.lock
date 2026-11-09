@@ -5227,6 +5227,7 @@ dependencies = [
  "clap",
  "libc",
  "moli",
+ "moli-browser-profile",
  "moli-core",
  "moli-process-signal",
  "moli-protocol-server",

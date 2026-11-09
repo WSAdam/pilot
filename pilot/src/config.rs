@@ -19,6 +19,21 @@ pub fn moli_config(launch: &ChromiumLaunch) -> Result<AppConfig> {
     let mut config =
         AppConfig::from_cli(&cli).context("❌ pilot could not build the moli configuration")?;
     config.browser.set_layout_policy(LayoutPolicy::Live);
+    // Chrome on the system pilot runs on, so the operating system pilot
+    // claims matches its TCP/IP stack's (identity.rs).
+    let accept_language = config
+        .browser
+        .fetch()
+        .browser_identity()
+        .accept_language()
+        .to_owned();
+    config.browser.fetch_mut().set_browser_identity(
+        crate::identity::chrome_identity(
+            &crate::identity::HostOs::current(),
+            cfg!(target_arch = "aarch64"),
+        )
+        .with_accept_language(accept_language),
+    );
     Ok(config)
 }
 
@@ -53,5 +68,24 @@ mod tests {
             config.browser.optional_resource_fetch_mask(),
             OptionalResourceFetchMask::IMAGE | OptionalResourceFetchMask::FONT
         );
+    }
+
+    // 2026-11-04: pilot claimed Moli's Chrome-on-Windows identity on a Mac,
+    // where the TCP/IP fingerprint says macOS (compat/bot-walls.md).
+    #[test]
+    fn pilot_claims_chrome_on_the_os_it_runs_on() {
+        let launch = ChromiumLaunch::parse(["--headless", "--remote-debugging-pipe"]);
+        let config = moli_config(&launch).unwrap();
+        let identity = config.browser.fetch().browser_identity();
+        let expected = crate::identity::chrome_identity(
+            &crate::identity::HostOs::current(),
+            cfg!(target_arch = "aarch64"),
+        );
+        assert_eq!(identity.user_agent(), expected.user_agent());
+        assert_eq!(identity.platform(), expected.platform());
+        assert_eq!(identity.navigator_platform(), expected.navigator_platform());
+        if cfg!(target_os = "macos") {
+            assert_eq!(identity.platform(), "macOS");
+        }
     }
 }

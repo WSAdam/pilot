@@ -1,5 +1,6 @@
 // Playwright launches pilot by executable path, exactly as it launches Chromium.
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import { chromium, devices } from 'playwright-core';
 import { freshProfileDir, noWindowEnv, pilotBin, startFixtureServer } from './support.mjs';
@@ -221,4 +222,48 @@ test('chromium.launch drives a page with pilot\'s window open (headless=false)',
     await browser.close();
   }
   assert.equal(browser.isConnected(), false);
+});
+
+// What each operating system's Chrome says about itself.
+const HOST_CHROME = {
+  darwin: { system: 'Macintosh; Intel Mac OS X 10_15_7', navigatorPlatform: 'MacIntel', platform: 'macOS' },
+  linux: { system: process.arch === 'arm64' ? 'X11; Linux aarch64' : 'X11; Linux x86_64', navigatorPlatform: process.arch === 'arm64' ? 'Linux aarch64' : 'Linux x86_64', platform: 'Linux' },
+  win32: { system: 'Windows NT 10.0; Win64; x64', navigatorPlatform: 'Win32', platform: 'Windows' },
+}[process.platform];
+
+// 2026-11-04: pilot claimed Chrome on Windows everywhere; on a Mac the TCP/IP
+// fingerprint says macOS, a mismatch bot defenses check (compat/bot-walls.md).
+test('pilot is Chrome on the host OS in its requests and its navigator', { timeout: 60_000 }, async () => {
+  const requests = [];
+  const server = createServer((request, response) => {
+    requests.push(request.headers);
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<title>identity</title>');
+  });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  const browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const seen = await page.evaluate(async () => ({
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      uaPlatform: navigator.userAgentData?.platform,
+      high: await navigator.userAgentData?.getHighEntropyValues(['platformVersion', 'architecture', 'fullVersionList']),
+    }));
+    const headers = requests[0];
+    assert.ok(headers, 'the server saw the navigation');
+    assert.equal(headers['user-agent'], seen.userAgent, 'the page and the request name the same browser');
+    assert.match(seen.userAgent, new RegExp(`^Mozilla/5\\.0 \\(${HOST_CHROME.system.replace(/[.()]/g, '\\$&')}\\) AppleWebKit/537\\.36 \\(KHTML, like Gecko\\) Chrome/\\d+\\.0\\.0\\.0 Safari/537\\.36$`));
+    assert.equal(seen.platform, HOST_CHROME.navigatorPlatform);
+    assert.equal(seen.uaPlatform, HOST_CHROME.platform);
+    assert.equal(headers['sec-ch-ua-platform'], `"${HOST_CHROME.platform}"`);
+    assert.match(seen.high.platformVersion, /^\d+\.\d+\.\d+$/);
+    const chrome = seen.high.fullVersionList.find(({ brand }) => brand === 'Google Chrome');
+    assert.match(chrome?.version ?? '', /^\d+\.0\.\d+\.\d+$/, 'the full version is in the client hints');
+    assert.notEqual(chrome.version.split('.').slice(2).join('.'), '0.0', 'and it is a real build, not the reduced one');
+  } finally {
+    await browser.close();
+    await new Promise((done) => server.close(done));
+  }
 });

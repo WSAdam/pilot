@@ -86,3 +86,8 @@ Date: 2026-11-03
 A navigation's request headers go out in Chrome's order, with User-Agent and Accept-Encoding among them instead of first, and a top-level navigation over HTTP/2 carries Chrome's priority: u=0, i. Accept-Encoding is gzip, deflate, br: Chrome also offers zstd, which pilot's libcurl cannot decode.
 Why: bot defenses check that header order matches the browser the User-Agent names, and with Chrome's TLS and HTTP/2 fingerprints in place, libcurl's order was the remaining mismatch on the wire. Subresource requests keep Moli's order until Chrome's has been checked.
 Date: 2026-11-04
+
+## pilot is Chrome on the operating system it runs on
+pilot's User-Agent, client hints and navigator.platform name the host OS: Chrome on macOS on a Mac, on Linux on Linux, on Windows on Windows (pilot/src/identity.rs). The User-Agent is Chrome's reduced one, Chrome/<major>.0.0.0; the full version appears only in Sec-CH-UA-Full-Version-List, as in Chrome. Moli's own default (Chrome on Windows, with the full build in the User-Agent) is unchanged for moli itself.
+Why: bot defenses compare the claimed OS with the TCP/IP fingerprint, which names the real one, and real Chrome has not sent its full build in the User-Agent since its user-agent reduction. The screen and other device values stay Moli's defaults for now.
+Date: 2026-11-04

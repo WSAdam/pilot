@@ -9,6 +9,7 @@
 pub mod argv;
 pub mod config;
 pub mod headful;
+pub mod identity;
 #[cfg(unix)]
 pub mod profile;
 pub mod serve;
