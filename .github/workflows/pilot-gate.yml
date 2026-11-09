@@ -51,10 +51,14 @@ jobs:
           echo "✅ after"; df -h /; free -h
 
       - name: Install build dependencies
+        # Upstream's CI builds inside rust:bookworm, which ships these; the bare Ubuntu
+        # runner does not. fontconfig (moli-system-fonts) failed the first gate run.
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends cmake libclang-dev time
+          sudo apt-get install --yes --no-install-recommends cmake libclang-dev time pkg-config \
+            libfontconfig1-dev libfreetype-dev libsqlite3-dev zlib1g-dev libssl-dev \
+            libwayland-dev libxkbcommon-dev libdrm-dev
 
       - name: Install pinned Rust toolchain
         run: |
@@ -83,12 +87,14 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: /usr/bin/time -v cargo build --release -p moli -p pilot
 
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: 0.11.14
           python-version: "3.12"
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.15.0
 
@@ -135,7 +141,8 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: /usr/bin/time -l cargo build --release -p moli -p pilot
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - name: Install Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.15.0
 
