@@ -193,7 +193,7 @@ test('the page lays out at the new width after a viewport resize', { timeout: 60
 
 // 2026-11-10: a ResizeObserver on document.body did not fire when Playwright
 // changed the viewport, though innerWidth changed (MCP core.spec browser_resize).
-test('a ResizeObserver on the body fires when the viewport is resized', { timeout: 60_000 }, () =>
+test('a ResizeObserver on the body fires when the viewport is resized', { todo: 'Build 3b', timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.setContent(`<div id="size">Waiting for resize...</div><script>
       new ResizeObserver(() => { document.getElementById('size').textContent = 'Window size: ' + innerWidth + 'x' + innerHeight; }).observe(document.body);

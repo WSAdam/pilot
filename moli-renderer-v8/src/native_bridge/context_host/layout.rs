@@ -490,26 +490,6 @@ impl JsContextHost {
             .set(self.layout_snapshot_cache_publishes.get().saturating_add(1));
     }
 
-    /// pilot: under Live layout, rebuilds a published layout that the DOM, a
-    /// scroll or the viewport has since outdated, so observers sample current
-    /// geometry (a ResizeObserver after a viewport resize saw the old size).
-    /// Sampling still never creates the first layout.
-    pub(crate) fn refresh_outdated_live_layout(&self) -> Result<(), LayoutError> {
-        if !self.layout_policy.rebuilds_stale_layout() {
-            return Ok(());
-        }
-        let published = self
-            .document_layout_state
-            .borrow()
-            .latest_layout(self.document_handle())
-            .is_some();
-        if published {
-            self.ensure_initial_layout()
-        } else {
-            Ok(())
-        }
-    }
-
     pub(crate) fn answer_layout_for_document(
         &self,
         document: DomHandle,

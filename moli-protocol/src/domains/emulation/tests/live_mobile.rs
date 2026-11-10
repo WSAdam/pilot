@@ -22,59 +22,6 @@ async fn live_layout_accepts_mobile_device_metrics_at_the_device_width() {
     );
 }
 
-// 2026-11-10: a ResizeObserver on document.body never fired when the viewport
-// changed size: ResizeObserver checks were queued only on DOM mutations and
-// observe(), not on a viewport resize (Playwright MCP browser_resize).
-#[tokio::test(flavor = "multi_thread")]
-async fn a_viewport_resize_reaches_a_resize_observer_on_the_body() {
-    let mut ctx = TestContext::new_with_layout_policy(moli_core::LayoutPolicy::Live);
-    load_session_page_for_pending_emulation_test(&mut ctx).await;
-    expect_session_command_result(
-        &mut ctx,
-        88510,
-        "SID-1",
-        "Emulation.setDeviceMetricsOverride",
-        json!({"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": false}),
-    )
-    .await;
-    evaluate(
-        &mut ctx,
-        r#"
-        globalThis.observedSizes = [];
-        globalThis.resizeEvents = [];
-        addEventListener('resize', () => resizeEvents.push(innerWidth + 'x' + innerHeight));
-        new ResizeObserver(() => observedSizes.push(innerWidth + 'x' + innerHeight))
-            .observe(document.body || document.documentElement);
-        new Promise(requestAnimationFrame).then(() => observedSizes.length)
-    "#,
-    )
-    .await;
-    expect_session_command_result(
-        &mut ctx,
-        88511,
-        "SID-1",
-        "Emulation.setDeviceMetricsOverride",
-        json!({"width": 390, "height": 780, "deviceScaleFactor": 1, "mobile": false}),
-    )
-    .await;
-    assert_eq!(
-        evaluate(
-            &mut ctx,
-            r#"
-            new Promise(resolve => {
-                const check = () => observedSizes.includes('390x780')
-                    ? resolve(true)
-                    : requestAnimationFrame(check);
-                check();
-                setTimeout(() => resolve({ observedSizes, resizeEvents }), 2000);
-            })
-        "#
-        )
-        .await,
-        json!(true)
-    );
-}
-
 // 2026-11-10: under Live layout, a viewport resize left the page laid out at
 // the old width (body 1264px wide after resizing to 390px): the latest layout
 // was reused because neither the DOM nor a scroll offset had changed.

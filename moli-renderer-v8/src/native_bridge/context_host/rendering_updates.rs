@@ -370,17 +370,6 @@ impl JsContextHost {
                     context_scope,
                     global,
                 );
-                // pilot: a viewport resize changes the layout of observed
-                // elements without any DOM mutation, so ResizeObserver checks
-                // are queued here too; before, they ran only on DOM mutations
-                // and observe(), and a ResizeObserver on document.body never
-                // saw Playwright's setViewportSize (MCP browser_resize).
-                if self.window_document_owner_is_current_for_dispatch_scope(
-                    target.owner(),
-                    target.dispatch_scope(),
-                ) {
-                    crate::context_bootstrap::queue_resize_observer_checks(context_scope);
-                }
             }
 
             if !self.window_document_owner_is_current_for_dispatch_scope(

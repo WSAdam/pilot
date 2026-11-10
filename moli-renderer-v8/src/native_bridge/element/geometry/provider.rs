@@ -66,7 +66,6 @@ pub(crate) fn published_geometry_batch(
     batch: &LayoutQueryBatch<DomHandle>,
 ) -> Result<LayoutAnswers<DomHandle>, LayoutError> {
     if runtime.layout_policy().uses_real_layout() {
-        runtime.refresh_outdated_live_layout()?;
         runtime.answer_layout_for_document(document, batch)
     } else {
         Ok(answer_mock_queries(
