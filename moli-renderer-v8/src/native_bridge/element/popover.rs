@@ -372,15 +372,6 @@ fn close_open_auto_popovers(
     }
 }
 
-fn throw_redundant_popover_state_error(scope: &mut v8::PinScope<'_, '_>) {
-    throw_dom_exception(
-        scope,
-        "InvalidStateError",
-        11,
-        "Popover is already in the requested state.",
-    );
-}
-
 fn parse_popover_invocation<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     args: &v8::FunctionCallbackArguments<'s>,
@@ -484,14 +475,15 @@ pub(in crate::native_bridge) fn node_show_popover_callback<'s>(
         return;
     };
     let runtime = unsafe { &*runtime_ptr };
-    if !ensure_popover_supported(scope, runtime, handle)
-        || !ensure_popover_connected(scope, runtime, handle)
-    {
+    // pilot: HTML's "check popover validity" order, as Chrome implements it:
+    // no popover attribute throws, an already-showing popover returns quietly
+    // (the old spec threw InvalidStateError), and only then does a
+    // disconnected element throw.
+    if !ensure_popover_supported(scope, runtime, handle) || popover_is_open(runtime, handle) {
         rv.set_undefined();
         return;
     }
-    if popover_is_open(runtime, handle) {
-        throw_redundant_popover_state_error(scope);
+    if !ensure_popover_connected(scope, runtime, handle) {
         rv.set_undefined();
         return;
     }
@@ -510,14 +502,14 @@ pub(in crate::native_bridge) fn node_hide_popover_callback<'s>(
         return;
     };
     let runtime = unsafe { &*runtime_ptr };
-    if !ensure_popover_supported(scope, runtime, handle)
-        || !ensure_popover_connected(scope, runtime, handle)
-    {
+    // pilot: as in showPopover, a popover that is already hidden returns
+    // quietly before the connected check (Playwright's highlight overlay calls
+    // hidePopover() on a fresh element, which the old spec made throw).
+    if !ensure_popover_supported(scope, runtime, handle) || !popover_is_open(runtime, handle) {
         rv.set_undefined();
         return;
     }
-    if !popover_is_open(runtime, handle) {
-        throw_redundant_popover_state_error(scope);
+    if !ensure_popover_connected(scope, runtime, handle) {
         rv.set_undefined();
         return;
     }

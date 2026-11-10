@@ -367,8 +367,12 @@ fn showing_popover_throws_when_force_close_removes_opening_popover() {
 
     assert_eq!(result, "InvalidStateError:true|false|false");
 }
+// 2026-11-10 (pilot): requirement changed. Upstream pinned the old spec, where a
+// redundant popover state change threw InvalidStateError; current HTML and
+// Chrome return quietly, and Playwright's highlight overlay (and with it the
+// recorder) calls hidePopover() on a fresh element.
 #[test]
-fn show_and_hide_popover_throw_on_redundant_state_changes() {
+fn show_and_hide_popover_return_quietly_on_redundant_state_changes() {
     let mut vm = new_storage_test_vm("https://popover-redundant-state.test/");
 
     let result = vm
@@ -398,10 +402,7 @@ fn show_and_hide_popover_throw_on_redundant_state_changes() {
         )
         .expect("redundant popover state probe should evaluate");
 
-    assert_eq!(
-        result,
-        "InvalidStateError:true|InvalidStateError:true|false"
-    );
+    assert_eq!(result, "ok|ok|false");
 }
 #[test]
 fn opening_auto_popovers_preserves_flat_tree_ancestors() {

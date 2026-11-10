@@ -451,9 +451,13 @@ fn detached_popover_methods_use_html_element_prototype_brand_checks() {
         )
         .expect("detached popover method brand checks should evaluate");
 
+    // 2026-11-10 (pilot): requirement changed. hidePopover() on a popover that
+    // is already hidden returns before the connected check (HTML's "check
+    // popover validity", Chrome's IsPopoverReady), so the detached popover's
+    // hidePopover() no longer throws; showPopover and togglePopover still do.
     assert_eq!(
         result,
-        r#"{"shapes":"true:function:0:true:true|true:function:0:true:true|true:function:0:true:true","own":"false,false,false","elementOwn":"false,false,false","svgTypes":"undefined,undefined,undefined","direct":"ERR:NotSupportedError:9|ERR:InvalidStateError:11|ERR:InvalidStateError:11|ERR:InvalidStateError:11","prototype":"ERR:NotSupportedError:9|ERR:InvalidStateError:11|ERR:InvalidStateError:11|ERR:InvalidStateError:11"}"#
+        r#"{"shapes":"true:function:0:true:true|true:function:0:true:true|true:function:0:true:true","own":"false,false,false","elementOwn":"false,false,false","svgTypes":"undefined,undefined,undefined","direct":"ERR:NotSupportedError:9|ERR:InvalidStateError:11|OK:undefined|ERR:InvalidStateError:11","prototype":"ERR:NotSupportedError:9|ERR:InvalidStateError:11|OK:undefined|ERR:InvalidStateError:11"}"#
     );
 }
 

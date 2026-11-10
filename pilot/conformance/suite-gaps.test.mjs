@@ -118,7 +118,7 @@ test('a pipe launch with --remote-debugging-port also serves CDP on that port', 
 // 2026-11-10: pilot threw InvalidStateError for a redundant popover state change
 // (the old spec). Chrome returns quietly, and Playwright's highlight overlay calls
 // hidePopover() on a fresh element, so recorder setup died on its first line.
-test('hidePopover on a closed popover and showPopover on an open one return quietly', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('hidePopover on a closed popover and showPopover on an open one return quietly', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.goto(`${fixture.baseUrl}/greeting.html`);
     const outcome = await page.evaluate(() => {
@@ -136,7 +136,7 @@ test('hidePopover on a closed popover and showPopover on an open one return quie
 // 2026-11-10: Playwright's recorder (MCP browser_start_recording) recorded
 // nothing: its overlay install threw on hidePopover(), so no listener was set up
 // (MCP recorder.spec, CLI recording-start-stop).
-test("Playwright's recorder records a click and a fill as code", { todo: 'Build 3', timeout: 60_000 }, () =>
+test("Playwright's recorder records a click and a fill as code", { timeout: 60_000 }, () =>
   withPage(async (page, context) => {
     await page.setContent('<title>Title</title><button>Submit</button><input type="text">');
     const actions = [];
