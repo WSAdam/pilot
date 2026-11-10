@@ -299,7 +299,7 @@ pub(crate) fn complete_finite(
                 ),
             }
         }
-        CompletedPageCommandKind::CaptureScreenshot { completed } => {
+        CompletedPageCommandKind::CaptureScreenshot { completed, webp } => {
             let completion = match *completed {
                 Ok(completion) => completion,
                 Err(message) => {
@@ -319,14 +319,20 @@ pub(crate) fn complete_finite(
             };
             match page.finish_capture_screenshot(completion) {
                 Ok(RendererCaptureScreenshotReply::Captured(image)) => {
-                    CommandOutputPlan::from_devtools_result(AutomationResult::CaptureScreenshot(
+                    match screenshot_in_requested_format(
                         DevToolsCaptureScreenshotResult {
                             mime_type: image.mime_type,
                             width: image.width,
                             height: image.height,
                             bytes: image.bytes,
                         },
-                    ))
+                        webp,
+                    ) {
+                        Ok(result) => CommandOutputPlan::from_devtools_result(
+                            AutomationResult::CaptureScreenshot(result),
+                        ),
+                        Err(message) => CommandOutputPlan::error(-32000, message),
+                    }
                 }
                 Ok(RendererCaptureScreenshotReply::LayoutDisabled) => {
                     CommandOutputPlan::error(-32000, CAPTURE_SCREENSHOT_LAYOUT_DISABLED_MESSAGE)

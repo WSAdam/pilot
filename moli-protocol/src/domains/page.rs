@@ -213,6 +213,8 @@ enum PendingPageCommandKind {
     },
     CaptureScreenshot {
         pending: PendingPageCommand,
+        /// pilot: re-encode the renderer's PNG as WebP on completion.
+        webp: bool,
     },
     PrintToPdf {
         pending: PendingPageCommand,
@@ -279,6 +281,8 @@ enum CompletedPageCommandKind {
     },
     CaptureScreenshot {
         completed: Box<Result<CompletedPageCommand>>,
+        /// pilot: re-encode the renderer's PNG as WebP on completion.
+        webp: bool,
     },
     PrintToPdf {
         completed: Box<Result<CompletedPageCommand>>,
@@ -316,7 +320,7 @@ impl CompletedPageCommandKind {
             | Self::SetBypassContentSecurityPolicy { completed }
             | Self::CaptureSnapshot { completed }
             | Self::GetLayoutMetrics { completed }
-            | Self::CaptureScreenshot { completed }
+            | Self::CaptureScreenshot { completed, .. }
             | Self::PrintToPdf { completed, .. } => direct(completed),
             Self::SearchInResource(completed) => completed.renderer_output_predecessor(),
             Self::GetAppManifest(completed) => completed.renderer_output_predecessor(),
@@ -430,9 +434,10 @@ impl PendingPageCommandDispatch {
                     completed: Box::new(pending.wait().await),
                 }
             }
-            PendingPageCommandKind::CaptureScreenshot { pending } => {
+            PendingPageCommandKind::CaptureScreenshot { pending, webp } => {
                 CompletedPageCommandKind::CaptureScreenshot {
                     completed: Box::new(pending.wait().await),
+                    webp,
                 }
             }
             PendingPageCommandKind::PrintToPdf {

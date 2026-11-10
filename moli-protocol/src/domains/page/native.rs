@@ -63,19 +63,28 @@ fn prepare(
                 conn.default_background_color_for_owner(&owner),
             )
             .map_err(CommandOutputPlan::from_devtools_error)?;
+            let webp = capture::screenshot_wants_webp(&command);
             Ok(Operation::new(
                 Command::CaptureScreenshot(request),
-                |reply| match reply {
+                move |reply| match reply {
                     Ok(Reply::CaptureScreenshot(RendererCaptureScreenshotReply::Captured(
                         image,
-                    ))) => Response::success(CommandOutputPlan::devtools_result_payload(
-                        AutomationResult::CaptureScreenshot(DevToolsCaptureScreenshotResult {
+                    ))) => match capture::screenshot_in_requested_format(
+                        DevToolsCaptureScreenshotResult {
                             mime_type: image.mime_type,
                             width: image.width,
                             height: image.height,
                             bytes: image.bytes,
-                        }),
-                    )),
+                        },
+                        webp,
+                    ) {
+                        Ok(result) => {
+                            Response::success(CommandOutputPlan::devtools_result_payload(
+                                AutomationResult::CaptureScreenshot(result),
+                            ))
+                        }
+                        Err(message) => Response::error(-32000, message),
+                    },
                     Ok(Reply::CaptureScreenshot(
                         RendererCaptureScreenshotReply::LayoutDisabled,
                     )) => Response::error(-32000, CAPTURE_SCREENSHOT_LAYOUT_DISABLED_MESSAGE),

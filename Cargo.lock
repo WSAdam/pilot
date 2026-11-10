@@ -3616,6 +3616,7 @@ dependencies = [
  "data-url",
  "futures-util",
  "http",
+ "image",
  "indexmap",
  "lopdf",
  "moli-bounded-buffer",

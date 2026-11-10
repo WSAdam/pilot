@@ -51,10 +51,8 @@ pub(super) fn build_cdp_capture_screenshot_command(
         Err(e) => return Err(CommandOutputPlan::error(-32602, e)),
     };
     match params.format.as_deref() {
-        None | Some("png" | "jpeg") => {}
-        Some("webp") => {
-            return Err(unsupported_cdp_screenshot_option("format"));
-        }
+        // pilot: webp is accepted as in Chrome; see screenshot_in_requested_format.
+        None | Some("png" | "jpeg" | "webp") => {}
         Some(_) => {
             return Err(CommandOutputPlan::error(-32602, "Invalid image format"));
         }
@@ -370,12 +368,48 @@ pub(super) fn devtools_layout_metrics_error(message: impl std::fmt::Display) -> 
     DevToolsError::new(DevToolsErrorKind::Internal, message)
 }
 
+/// pilot: whether a captureScreenshot command asked for WebP.
+pub(super) fn screenshot_wants_webp(command: &DevToolsCaptureScreenshotCommand) -> bool {
+    command.format.as_deref() == Some("webp")
+}
+
+/// pilot: the renderer encodes PNG and JPEG only. A WebP screenshot asks it for
+/// PNG and re-encodes that here as lossless WebP with the `image` crate's
+/// encoder, which the build already carries, so the renderer is unchanged.
+pub(super) fn screenshot_in_requested_format(
+    captured: DevToolsCaptureScreenshotResult,
+    webp: bool,
+) -> Result<DevToolsCaptureScreenshotResult, String> {
+    if !webp {
+        return Ok(captured);
+    }
+    let decoded = moli_image::decode_png(&captured.bytes)
+        .map_err(|error| format!("Failed to re-encode the screenshot as WebP: {error}"))?;
+    let mut bytes = Vec::new();
+    ::image::codecs::webp::WebPEncoder::new_lossless(&mut bytes)
+        .encode(
+            &decoded.rgba,
+            decoded.width,
+            decoded.height,
+            ::image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|error| format!("Failed to re-encode the screenshot as WebP: {error}"))?;
+    Ok(DevToolsCaptureScreenshotResult {
+        mime_type: "image/webp".to_owned(),
+        width: decoded.width,
+        height: decoded.height,
+        bytes: bytes.into(),
+    })
+}
+
 pub(super) fn renderer_screenshot_request(
     command: &DevToolsCaptureScreenshotCommand,
     base_background_color: [u8; 4],
 ) -> Result<RendererCaptureScreenshotRequest, DevToolsError> {
     let format = match command.format.as_deref() {
-        None | Some("png") => RendererScreenshotFormat::Png,
+        // pilot: the renderer encodes PNG for a webp request; the result is
+        // re-encoded by screenshot_in_requested_format.
+        None | Some("png" | "webp") => RendererScreenshotFormat::Png,
         Some("jpeg") => RendererScreenshotFormat::Jpeg,
         Some(_) => {
             return Err(DevToolsError::new(
@@ -480,7 +514,10 @@ pub(super) fn start_devtools_capture_screenshot_command(
         Ok(pending) => PageCommandTaskStep::Pending(PendingPageCommandDispatch {
             command_id,
             owner_scope,
-            kind: Box::new(PendingPageCommandKind::CaptureScreenshot { pending }),
+            kind: Box::new(PendingPageCommandKind::CaptureScreenshot {
+                pending,
+                webp: screenshot_wants_webp(&command),
+            }),
         }),
         Err(error) => PageCommandTaskStep::Complete(CommandOutputPlan::error(
             -32000,

@@ -117,7 +117,7 @@ async fn capture_screenshot_bad_format() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn capture_screenshot_encodes_jpeg_and_rejects_webp() {
+async fn capture_screenshot_encodes_jpeg_and_webp() {
     let mut ctx = TestContext::new();
     install_active_screenshot_page(
         &mut ctx,
@@ -150,11 +150,15 @@ async fn capture_screenshot_encodes_jpeg_and_rejects_webp() {
         "params": {"format": "webp"}
     }))
     .await;
-    ctx.expect_error(
-        14,
-        -32000,
-        "Page.captureScreenshot option 'format' is not supported.",
-    );
+    // 2026-11-10 (pilot): requirement changed. Upstream rejected webp; pilot
+    // returns it as Chrome does (Playwright MCP browser_take_screenshot type
+    // webp), re-encoding the renderer's PNG as lossless WebP.
+    let webp = screenshot_bytes(&take_response_by_id(&mut ctx, 14));
+    assert_eq!(&webp[..4], b"RIFF");
+    assert_eq!(&webp[8..12], b"WEBP");
+    let decoded = image::load_from_memory_with_format(&webp, image::ImageFormat::WebP)
+        .expect("captureScreenshot WebP should decode");
+    assert_eq!((decoded.width(), decoded.height()), (4, 3));
 }
 
 /// cdp.page: captureScreenshot – a committed document is required

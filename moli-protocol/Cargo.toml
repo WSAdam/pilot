@@ -14,9 +14,13 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 base64 = "0.22"
 bytes = "1"
 indexmap = "2.14.2"
+# pilot: WebP screenshots re-encode the renderer's PNG. moli-image already
+# enables the webp feature, so this adds no new code to the build.
+image = { version = "0.25.10", default-features = false, features = ["webp"] }
 moli-bounded-buffer = { path = "../moli-bounded-buffer" }
 moli-core = { path = "../moli-core" }
 moli-header-field = { path = "../moli-header-field" }
+moli-image = { path = "../moli-image" }
 moli-page-types = { path = "../moli-page-types" }
 moli-browser-profile = { path = "../moli-browser-profile" }
 moli-cookie-jar = { path = "../moli-cookie-jar" }
@@ -62,7 +66,6 @@ tokio-tungstenite = { version = "0.28.0", default-features = false, features = [
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 axum = { version = "0.8.6", features = ["ws"] }
 moli-cookie-jar = { path = "../moli-cookie-jar", features = ["test-support"] }
-moli-image = { path = "../moli-image" }
 moli-storage-service = { path = "../moli-storage-service" }
 moli-v8-init = { path = "../moli-v8-init" }
 

@@ -247,8 +247,11 @@ fn cdp_capture_screenshot_preserves_page_clip() {
     );
 }
 
+// 2026-11-10 (pilot): requirement changed. Upstream rejected webp at the CDP
+// boundary; pilot accepts it as Chrome does (Playwright MCP
+// browser_take_screenshot type webp).
 #[test]
-fn devtools_page_entry_rejects_unsupported_capture_screenshot_format() {
+fn devtools_page_entry_accepts_webp_capture_screenshot_format() {
     let conn = CdpConnection::new();
     let params = json!({
         "format": "webp"
@@ -260,17 +263,10 @@ fn devtools_page_entry_rejects_unsupported_capture_screenshot_format() {
         None,
         r#"{"id":128,"method":"Page.captureScreenshot"}"#,
     );
-    let Err(plan) = build_cdp_capture_screenshot_command(&conn, &cmd) else {
-        panic!("webp should be rejected at the CDP capability boundary");
+    let Ok(command) = build_cdp_capture_screenshot_command(&conn, &cmd) else {
+        panic!("webp should be accepted at the CDP capability boundary");
     };
-    let mut out = Vec::new();
-    plan.emit_into(&mut out, cmd.id, cmd.session_id);
-    assert_eq!(out[0]["id"], json!(128));
-    assert_eq!(out[0]["error"]["code"], json!(-32000));
-    assert_eq!(
-        out[0]["error"]["message"],
-        json!("Page.captureScreenshot option 'format' is not supported.")
-    );
+    assert_eq!(command.format.as_deref(), Some("webp"));
 }
 
 #[test]

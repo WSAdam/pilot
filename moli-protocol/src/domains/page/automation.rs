@@ -8,7 +8,11 @@ enum PageQuery {
     FrameTree(Box<resource_tree::PreparedAutomationFrameTree>),
     FrameTrees(Vec<resource_tree::PreparedAutomationFrameTree>),
     Layout(Box<PreparedRuntimePageQuery<RendererLayoutMetrics>>),
-    Screenshot(Box<PreparedRuntimePageQuery<RendererCaptureScreenshotReply>>),
+    /// pilot: the bool asks for the renderer's PNG to be re-encoded as WebP.
+    Screenshot(
+        Box<PreparedRuntimePageQuery<RendererCaptureScreenshotReply>>,
+        bool,
+    ),
 }
 
 impl PreparedAutomationPageQuery {
@@ -66,16 +70,19 @@ impl PreparedAutomationPageQuery {
                     &command,
                     conn.default_background_color_for_owner(&owner),
                 )?;
-                PageQuery::Screenshot(Box::new(
-                    PreparedRuntimePageQuery::prepare(
-                        conn,
-                        &owner,
-                        "page screenshot failed",
-                        move |page| page.start_capture_screenshot_with_request(request),
-                        Page::finish_capture_screenshot,
-                    )
-                    .map_err(capture_error)?,
-                ))
+                PageQuery::Screenshot(
+                    Box::new(
+                        PreparedRuntimePageQuery::prepare(
+                            conn,
+                            &owner,
+                            "page screenshot failed",
+                            move |page| page.start_capture_screenshot_with_request(request),
+                            Page::finish_capture_screenshot,
+                        )
+                        .map_err(capture_error)?,
+                    ),
+                    screenshot_wants_webp(&command),
+                )
             }
             _ => unreachable!("only admitted Page queries use this preparation"),
         };
@@ -110,7 +117,7 @@ impl PreparedAutomationPageQuery {
                     .map(AutomationResult::LayoutMetrics)
                     .map_err(devtools_layout_metrics_error)
             }
-            PageQuery::Screenshot(query) => {
+            PageQuery::Screenshot(query, webp) => {
                 let image = query
                     .run(
                         driver,
@@ -119,14 +126,21 @@ impl PreparedAutomationPageQuery {
                     .await
                     .map_err(capture_error)?;
                 match image {
-                    RendererCaptureScreenshotReply::Captured(image) => Ok(
-                        AutomationResult::CaptureScreenshot(DevToolsCaptureScreenshotResult {
-                            mime_type: image.mime_type,
-                            width: image.width,
-                            height: image.height,
-                            bytes: image.bytes,
-                        }),
-                    ),
+                    RendererCaptureScreenshotReply::Captured(image) => {
+                        screenshot_in_requested_format(
+                            DevToolsCaptureScreenshotResult {
+                                mime_type: image.mime_type,
+                                width: image.width,
+                                height: image.height,
+                                bytes: image.bytes,
+                            },
+                            webp,
+                        )
+                        .map(AutomationResult::CaptureScreenshot)
+                        .map_err(|message| {
+                            DevToolsError::new(DevToolsErrorKind::UnableToCaptureScreen, message)
+                        })
+                    }
                     RendererCaptureScreenshotReply::LayoutDisabled => {
                         Err(capture_error(ScreenshotLayoutDisabled))
                     }
