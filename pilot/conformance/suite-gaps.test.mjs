@@ -38,7 +38,7 @@ async function withPage(run) {
 // 2026-11-10: Storage.setCookies used the page's URL when a cookie named only a
 // domain, so a cookie for example.com set while on 127.0.0.1 failed the domain
 // match and was dropped (MCP cookies.spec: cookie_list by domain, cookie_delete).
-test('a cookie set by domain alone is kept for a site the page never visited', { todo: 'Build 2', timeout: 60_000 }, () =>
+test('a cookie set by domain alone is kept for a site the page never visited', { timeout: 60_000 }, () =>
   withPage(async (page, context) => {
     await page.goto(`${fixture.baseUrl}/greeting.html`);
     await context.addCookies([
@@ -52,7 +52,7 @@ test('a cookie set by domain alone is kept for a site the page never visited', {
 // 2026-11-10: pilot's Network.requestWillBeSent carried the body as postData;
 // current Playwright reads only postDataEntries, so request.postData() was null
 // (MCP network.spec: browser_network_request details and parts).
-test('a request body reaches Playwright as request.postData()', { todo: 'Build 2', timeout: 60_000 }, () =>
+test('a request body reaches Playwright as request.postData()', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.goto(`${fixture.baseUrl}/greeting.html`);
     const requestSeen = page.waitForRequest('**/api');
@@ -63,7 +63,7 @@ test('a request body reaches Playwright as request.postData()', { todo: 'Build 2
 
 // 2026-11-10: Page.captureScreenshot refused format "webp" (MCP
 // browser_take_screenshot type webp, CLI screenshot --filename x.webp).
-test('Page.captureScreenshot returns a WebP image for format "webp"', { todo: 'Build 2', timeout: 60_000 }, () =>
+test('Page.captureScreenshot returns a WebP image for format "webp"', { timeout: 60_000 }, () =>
   withPage(async (page, context) => {
     await page.goto(`${fixture.baseUrl}/greeting.html`);
     const cdp = await context.newCDPSession(page);
@@ -76,7 +76,7 @@ test('Page.captureScreenshot returns a WebP image for format "webp"', { todo: 'B
 // 2026-11-10: pilot dropped --proxy-server as an unknown switch, so a launch
 // with a proxy went direct and hosts only the proxy can reach failed with
 // net::ERR_FAILED (MCP launch.spec --proxy-server).
-test('a browser launched with a proxy sends its requests through it', { todo: 'Build 2', timeout: 60_000 }, async () => {
+test('a browser launched with a proxy sends its requests through it', { timeout: 60_000 }, async () => {
   const proxy = createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'text/html' });
     response.end(`<title>proxied</title><p>Served by the proxy for ${request.url}</p>`);
@@ -101,7 +101,7 @@ test('a browser launched with a proxy sends its requests through it', { todo: 'B
 // Playwright waits for on stderr when the launch names a port, so the launch
 // hung. Chrome serves both, and MCP's crashed-browser test connects over the
 // port to close the browser (MCP http.spec relaunches a crashed shared browser).
-test('a pipe launch with --remote-debugging-port also serves CDP on that port', { todo: 'Build 2', timeout: 60_000 }, async () => {
+test('a pipe launch with --remote-debugging-port also serves CDP on that port', { timeout: 60_000 }, async () => {
   const probe = createServer();
   await new Promise((done) => probe.listen(0, '127.0.0.1', done));
   const { port } = probe.address();
