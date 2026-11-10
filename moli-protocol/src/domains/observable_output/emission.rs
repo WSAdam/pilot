@@ -9,7 +9,7 @@ use super::output_queue::{
 };
 use super::runtime_emission::mark_runtime_observable_emission_cursor_for_session_owner;
 use crate::automation::DevToolsTargetId;
-use crate::conn::{BackgroundProtocolEvent, CdpConnection, monotonic_timestamp_seconds};
+use crate::conn::{BackgroundProtocolEvent, CdpConnection};
 use crate::domains::activity::{
     ProtocolOutputPayloads, ProtocolOutputProjectionContext, ProtocolOutputSlot,
 };
@@ -183,7 +183,14 @@ impl ObservableActivityEmissionPlan {
         out: &mut Vec<BackgroundProtocolEvent>,
         session_id: Option<&str>,
     ) {
-        let base_timestamp = monotonic_timestamp_seconds();
+        // pilot: every event stamped here (Log.entryAdded without its own time,
+        // Runtime.exceptionThrown, Runtime.consoleAPICalled) carries a CDP
+        // Runtime.Timestamp, milliseconds since the epoch, as Chrome sends and
+        // as Log's replay already stamps; upstream used monotonic seconds.
+        let base_timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64() * 1_000.0)
+            .unwrap_or_default();
         // `session_id == None` is routed through a temporary exact Page-owner
         // scope while a concrete renderer publication is projected. Freeze
         // that target into the typed automation sidecar now: downstream BiDi
@@ -202,7 +209,8 @@ impl ObservableActivityEmissionPlan {
             out.push(output.emit_background_event(
                 session_id,
                 target_id.as_ref(),
-                base_timestamp + (output_index as f64 * 0.000_001),
+                // One microsecond apart, in milliseconds, to keep them ordered.
+                base_timestamp + (output_index as f64 * 0.001),
             ));
         }
         self.cursor.mark_emitted(conn, session_id);
@@ -495,6 +503,23 @@ mod tests {
                         .as_str()
                         .is_some_and(|text| text.contains("planned failure"))),
             "log plan should emit Log.entryAdded: {out:?}"
+        );
+        // 2026-11-10 (pilot): Moli's own lifecycle-error events were stamped in
+        // monotonic seconds; Log.entryAdded, Runtime.exceptionThrown and
+        // Runtime.consoleAPICalled carry milliseconds since the epoch, as in Chrome.
+        let now_millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after the epoch")
+            .as_secs_f64()
+            * 1_000.0;
+        let entry_timestamp = out
+            .iter()
+            .find(|message| message["method"] == json!("Log.entryAdded"))
+            .and_then(|message| message["params"]["entry"]["timestamp"].as_f64())
+            .expect("Log.entryAdded should carry a numeric timestamp");
+        assert!(
+            (entry_timestamp - now_millis).abs() < 600_000.0,
+            "lifecycle Log.entryAdded timestamp {entry_timestamp} should be milliseconds since the epoch (now {now_millis})"
         );
         ctx.with_fixture(|conn| {
             assert!(
