@@ -180,7 +180,7 @@ test('each option of a select multiple listbox gets a box and a snapshot ref', {
 
 // 2026-11-10: a ResizeObserver on document.body did not fire when Playwright
 // changed the viewport, though innerWidth changed (MCP core.spec browser_resize).
-test('a ResizeObserver on the body fires when the viewport is resized', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('a ResizeObserver on the body fires when the viewport is resized', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.setContent(`<div id="size">Waiting for resize...</div><script>
       new ResizeObserver(() => { document.getElementById('size').textContent = 'Window size: ' + innerWidth + 'x' + innerHeight; }).observe(document.body);
