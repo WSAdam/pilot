@@ -100,3 +100,8 @@ Every build runs in `.github/workflows/pilot-gate.yml` on GitHub's machines.
 - **The original project's own workflows** are disabled in this repo: they need its self-hosted runners.
 Why: moli-renderer-v8 is one 1.35M-line crate, so one rustc of it peaks at 6–7 GB whatever the change. Local builds swapped the user's 16 GB Mac and filled its disk. The repo is public, so GitHub's runners cost nothing.
 Date: 2026-11-09
+
+## pilot loads local files when the browser navigates to them
+When Playwright (or MCP's browser_navigate) navigates to a file:// URL, pilot reads the file and loads it as a document, as Chrome does: text/plain shows in a `<pre>`, HTML renders. A file:// page may navigate to another file. A web page still cannot open a file:// URL, and fetch/XHR of file URLs stays refused. Subresources of a file:// page (its CSS and images) are not loaded yet. Moli's own default is unchanged: the switch is `FetchConfig::set_local_file_navigation`, which pilot turns on in `pilot/src/config.rs`.
+Why: pilot is driven as Chrome, and Playwright MCP decides which local files an agent may open (its `allowUnrestrictedFileAccess` and workspace roots). Refusing every file:// navigation broke that, without making anything safer than Chrome itself.
+Date: 2026-11-10

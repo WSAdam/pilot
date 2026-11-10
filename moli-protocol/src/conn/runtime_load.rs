@@ -1138,6 +1138,22 @@ impl BackgroundNavigationLoadJob {
                 return navigation;
             }
 
+            if let Some(navigation) = load_local_file_navigation_with_engine_async(
+                &mut engine,
+                self.page_reservation.clone(),
+                &self.load_inputs,
+                &self.method,
+                &self.raw_url,
+                self.request_headers.clone(),
+                reply_boundary,
+            )
+            .await
+            {
+                early_result_sent =
+                    Self::emit_early_result_for_successful_document(&mut early_result, &navigation);
+                return navigation;
+            }
+
             ensure_url_not_blocked_for_load_inputs(&self.load_inputs, &self.raw_url)?;
             if self.load_inputs.network_offline {
                 // Emulated offline is a network failure, not a protocol error.
@@ -1525,6 +1541,132 @@ async fn load_data_url_navigation_with_engine_async(
             .map(NavigationLoadOutcome::response_commit_ready)
         }
         .await,
+    )
+}
+
+/// pilot: a file:// navigation's document, read from disk off the protocol
+/// thread. Only regular files up to the body materialize limit are read;
+/// anything else is the net error text Chrome reports for it.
+async fn read_local_file_document(url: &Url) -> std::result::Result<Vec<u8>, &'static str> {
+    use std::io::Read as _;
+
+    const NOT_FOUND: &str = "net::ERR_FILE_NOT_FOUND";
+    const TOO_BIG: &str = "net::ERR_FILE_TOO_BIG";
+    let path = url.to_file_path().map_err(|()| NOT_FOUND)?;
+    let limit = super::body_spool::DEFAULT_BODY_MATERIALIZE_LIMIT as u64;
+    tokio::task::spawn_blocking(move || {
+        // Directories, FIFOs and devices are not documents; a FIFO or
+        // /dev/zero would otherwise block or never end.
+        let metadata = std::fs::metadata(&path).map_err(|_| NOT_FOUND)?;
+        if !metadata.is_file() {
+            return Err(NOT_FOUND);
+        }
+        if metadata.len() > limit {
+            return Err(TOO_BIG);
+        }
+        let mut body = Vec::new();
+        std::fs::File::open(&path)
+            .map_err(|_| "net::ERR_ACCESS_DENIED")?
+            .take(limit + 1)
+            .read_to_end(&mut body)
+            .map_err(|_| "net::ERR_FAILED")?;
+        if body.len() as u64 > limit {
+            return Err(TOO_BIG);
+        }
+        Ok(body)
+    })
+    .await
+    .unwrap_or(Err("net::ERR_FAILED"))
+}
+
+/// pilot: the Content-Type of a local file, from its extension (as Chrome's
+/// file loader does), else sniffed from its bytes.
+fn local_file_content_type(url: &Url, body: &[u8]) -> String {
+    match moli_web_mime::selected_file_mime_type(url.path()) {
+        "" => moli_web_mime::sniff_unknown_mime_type(body, true),
+        known => known.to_owned(),
+    }
+}
+
+/// pilot: loads a file:// document the way data: documents load, as a
+/// synthetic 200 response, so Chrome's local-file navigation works (Playwright
+/// MCP gates local files itself). Navigation policy decides who may start one
+/// (domains/page/navigation.rs); a missing or unreadable file commits the
+/// browser error page with Chrome's net error text.
+#[allow(clippy::too_many_arguments)]
+async fn load_local_file_navigation_with_engine_async(
+    engine: &mut NavigationEngine,
+    page_reservation: RendererDocumentPreparationTarget,
+    load_inputs: &TargetNavigationLoadInputs,
+    method: &str,
+    raw_url: &str,
+    request_headers: moli_fetch::RequestHeaders,
+    reply_boundary: RendererReplyBoundary,
+) -> Option<Result<NavigationLoadOutcome>> {
+    let requested_url = Url::parse(raw_url)
+        .ok()
+        .filter(|url| url.scheme() == "file")?;
+    tracing::debug!(url = %requested_url, "🔍 loading a local file document");
+    let body = match read_local_file_document(&requested_url).await {
+        Ok(body) => body,
+        Err(error_text) => {
+            tracing::warn!(url = %requested_url, error_text, "⚠️ local file document not loaded");
+            return Some(
+                prepare_network_error_page_navigation_with_engine_async(
+                    engine,
+                    page_reservation,
+                    load_inputs,
+                    requested_url,
+                    method.to_owned(),
+                    request_headers,
+                    error_text.to_owned(),
+                    reply_boundary,
+                )
+                .await,
+            );
+        }
+    };
+    let content_type = local_file_content_type(&requested_url, &body);
+    let response = RawResponse::from_head_and_body(
+        ResponseHead {
+            status_text: None,
+            final_url: requested_url.clone(),
+            status: 200,
+            headers: vec![(
+                "Content-Type".to_owned(),
+                moli_fetch::header_value_from_byte_string(&content_type)
+                    .expect("serialized MIME types contain ByteStrings"),
+            )],
+            request_cookie_report: None,
+            cookie_set_reports: Vec::new(),
+            redirected: false,
+            redirect_chain: Vec::new(),
+            from_cache: false,
+            cache_state: Default::default(),
+            negotiated_http_version: None,
+        },
+        body,
+    );
+    let head = response.head();
+    let body = CapturedBody::from_bytes(response.clone_body_bytes());
+    Some(
+        prepare_navigation_from_captured_raw_response_with_engine_async(
+            engine,
+            page_reservation,
+            load_inputs,
+            requested_url,
+            method.to_owned(),
+            request_headers,
+            head,
+            body,
+            MainDocumentBodyProgressSource::default(),
+            NetworkObservationJournal::default(),
+            None,
+            false,
+            reply_boundary,
+        )
+        .await
+        .map(NavigationLoadOutcome::response_commit_ready),
     )
 }
 
@@ -2570,6 +2712,19 @@ impl CdpConnection {
             {
                 return navigation;
             }
+            if let Some(navigation) = load_local_file_navigation_with_engine_async(
+                self.standalone_navigation_engine.ensure_mut(),
+                page_reservation.into(),
+                &load_inputs,
+                method,
+                raw_url,
+                request_headers.clone(),
+                RendererReplyBoundary::Stage,
+            )
+            .await
+            {
+                return navigation;
+            }
         } else {
             let mut inline_engine = self.navigation_engine_handle_for_load_inputs(&load_inputs);
             let page_reservation =
@@ -2589,6 +2744,19 @@ impl CdpConnection {
                 return navigation;
             }
             if let Some(navigation) = load_data_url_navigation_with_engine_async(
+                &mut inline_engine,
+                page_reservation.clone(),
+                &load_inputs,
+                method,
+                raw_url,
+                request_headers.clone(),
+                RendererReplyBoundary::Stage,
+            )
+            .await
+            {
+                return navigation;
+            }
+            if let Some(navigation) = load_local_file_navigation_with_engine_async(
                 &mut inline_engine,
                 page_reservation,
                 &load_inputs,

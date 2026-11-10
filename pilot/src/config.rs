@@ -34,12 +34,25 @@ pub fn moli_config(launch: &ChromiumLaunch) -> Result<AppConfig> {
         )
         .with_accept_language(accept_language),
     );
+    // Chrome loads file:// documents when the browser navigates to them;
+    // Playwright MCP decides itself which files an agent may open.
+    config.browser.fetch_mut().set_local_file_navigation(true);
     Ok(config)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 2026-11-10: pilot refused every file:// navigation, as Moli does by
+    // default; Chrome loads local files (Playwright MCP browser_navigate with
+    // allowUnrestrictedFileAccess).
+    #[test]
+    fn pilot_lets_browser_navigations_load_local_files() {
+        let launch = ChromiumLaunch::parse(["--headless", "--remote-debugging-pipe"]);
+        let config = moli_config(&launch).unwrap();
+        assert!(config.browser.fetch().local_file_navigation());
+    }
 
     #[test]
     fn pilot_lays_pages_out_with_the_live_policy() {

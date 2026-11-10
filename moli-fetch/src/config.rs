@@ -61,6 +61,10 @@ pub struct FetchConfig {
     block_cidrs: Vec<AnyIpCidr>,
     tls: CurlTlsConfig,
     web_bot_auth: Option<WebBotAuthSigner>,
+    /// pilot: whether a browser-started (or file-started) navigation may load
+    /// a file:// document, as Chrome does. Off by default, so Moli keeps
+    /// refusing local files; pilot turns it on.
+    local_file_navigation: bool,
 }
 
 impl FetchConfig {
@@ -185,6 +189,11 @@ impl FetchConfig {
 
     pub fn set_obey_robots(&mut self, obey_robots: bool) {
         self.obey_robots = obey_robots;
+    }
+
+    /// pilot: lets browser-started navigations load file:// documents.
+    pub fn set_local_file_navigation(&mut self, enabled: bool) {
+        self.local_file_navigation = enabled;
     }
 
     pub fn set_proxy_options(
@@ -337,6 +346,11 @@ impl FetchConfig {
         self.obey_robots
     }
 
+    /// pilot: whether browser-started navigations may load file:// documents.
+    pub fn local_file_navigation(&self) -> bool {
+        self.local_file_navigation
+    }
+
     pub fn http_max_concurrent(&self) -> Option<NonZeroU32> {
         self.http_max_concurrent
     }
@@ -412,6 +426,7 @@ impl Default for FetchConfig {
             block_cidrs: Vec::new(),
             tls: CurlTlsConfig::default(),
             web_bot_auth: None,
+            local_file_navigation: false,
         }
     }
 }

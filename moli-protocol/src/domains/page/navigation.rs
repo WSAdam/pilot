@@ -2592,7 +2592,21 @@ fn start_navigate_to_url_command_with_background_policy_and_request(
             "Invalid navigation URL",
         ));
     };
-    if let Err(error) = route_navigation_url(&requested_url, LocalFileNavigationAccess::Denied) {
+    // pilot: with local file navigation turned on (pilot does; Moli's default
+    // keeps it off), a local file loads when the browser starts the navigation
+    // (Page.navigate, as Chrome allows; Playwright MCP gates files itself) or
+    // when a file:// document does. A web page still cannot open one.
+    let local_file_access = if conn.local_file_navigation_enabled()
+        && (initiator == NavigationStartInitiator::Browser
+            || navigation_initiator
+                .as_ref()
+                .is_some_and(|initiator| initiator.url().scheme() == "file"))
+    {
+        LocalFileNavigationAccess::BrowserGranted
+    } else {
+        LocalFileNavigationAccess::Denied
+    };
+    if let Err(error) = route_navigation_url(&requested_url, local_file_access) {
         return NavigateCommandStart::CompletePlan(CommandOutputPlan::error(
             -32000,
             error.to_string(),
@@ -2602,7 +2616,9 @@ fn start_navigate_to_url_command_with_background_policy_and_request(
         owner,
         &requested_url,
         referrer,
-        url.starts_with("data:"),
+        // pilot: file documents, like data: ones, are built locally and never
+        // reach the network or Fetch interception.
+        matches!(requested_url.scheme(), "data" | "file"),
     );
     let frame_id = navigation_preflight
         .as_ref()

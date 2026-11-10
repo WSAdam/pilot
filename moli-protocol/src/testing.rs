@@ -729,6 +729,23 @@ impl TestContext {
         Self::from_conn(conn)
     }
 
+    /// pilot: a connection whose browser-started navigations may load
+    /// file:// documents, as pilot configures it.
+    pub fn new_with_local_file_navigation() -> Self {
+        let mut fetch_config = FetchConfig::default();
+        fetch_config.set_local_file_navigation(true);
+        let conn = CdpConnection::new_with_initial_storage_partition_and_runtime_config(
+            CdpInitialStoragePartition::memory(),
+            NavigationRuntimeConfig::new(
+                fetch_config,
+                OptionalResourceFetchMask::NONE,
+                true,
+                LayoutPolicy::default(),
+            ),
+        );
+        Self::from_conn(conn)
+    }
+
     pub fn new_with_layout_policy(layout_policy: LayoutPolicy) -> Self {
         let conn = CdpConnection::new_with_initial_storage_partition_and_runtime_config(
             CdpInitialStoragePartition::memory(),

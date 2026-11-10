@@ -209,7 +209,7 @@ test('going back from a page that cancels beforeunload opens a beforeunload dial
 // 2026-11-10: pilot refused every file:// navigation ("requires an explicitly
 // granted browser capability"); Chrome loads local files, and Playwright MCP
 // does its own gating (MCP core.spec allowUnrestrictedFileAccess).
-test('a file:// URL loads the local file', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('a file:// URL loads the local file', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     const dir = await mkdtemp(join(tmpdir(), 'pilot-file-url-'));
     const file = join(dir, 'test.txt');

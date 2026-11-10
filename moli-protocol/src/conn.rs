@@ -1415,6 +1415,15 @@ impl Drop for CdpConnection {
 }
 
 impl CdpConnection {
+    /// pilot: whether browser-started navigations may load file:// documents.
+    /// Read from the connection's own runtime configuration (pilot turns it on
+    /// in its FetchConfig), so every browser context of the connection agrees.
+    pub(crate) fn local_file_navigation_enabled(&self) -> bool {
+        self.standalone_navigation_engine
+            .fetch_config()
+            .local_file_navigation()
+    }
+
     pub fn new() -> Self {
         Self::new_with_initial_storage_partition(
             CdpInitialStoragePartition::temporary()

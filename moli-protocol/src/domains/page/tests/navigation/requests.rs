@@ -44,6 +44,76 @@ async fn page_navigate_file_url_fails_before_navigation_events_or_document_repla
     });
 }
 
+// 2026-11-10 (pilot): pilot refused every file:// navigation, as Moli does by
+// default; with local file navigation on (pilot's configuration), a
+// browser-started navigation loads the file as Chrome does (Playwright MCP
+// browser_navigate with allowUnrestrictedFileAccess).
+#[tokio::test(flavor = "multi_thread")]
+async fn local_file_navigation_loads_a_text_file_as_a_plain_text_document() {
+    let dir = std::env::temp_dir().join(format!("pilot-file-navigation-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("test.txt");
+    std::fs::write(&file, "Test file content").unwrap();
+    let file_url = url::Url::from_file_path(&file).unwrap();
+
+    let mut ctx = TestContext::new_with_local_file_navigation();
+    load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
+    ensure_initial_document_for_session(&mut ctx, Some("SID-1")).await;
+    ctx.process_async(json!({
+        "id": 90_120,
+        "method": "Page.navigate",
+        "sessionId": "SID-1",
+        "params": { "url": file_url.as_str() }
+    }))
+    .await;
+    let response = take_response_by_id(&mut ctx, 90_120);
+    assert!(
+        response["error"].is_null(),
+        "file navigation should succeed: {response}"
+    );
+    assert!(response["result"]["errorText"].is_null(), "{response}");
+
+    ctx.process_async(json!({
+        "id": 90_121,
+        "method": "Runtime.evaluate",
+        "sessionId": "SID-1",
+        "params": {
+            "expression": "[document.contentType, document.body.firstElementChild?.localName, document.body.textContent.trim(), location.protocol]",
+            "returnByValue": true,
+        },
+    }))
+    .await;
+    assert_eq!(
+        take_response_by_id(&mut ctx, 90_121)["result"]["result"]["value"],
+        json!(["text/plain", "pre", "Test file content", "file:"])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn local_file_navigation_to_a_missing_file_reports_file_not_found() {
+    let missing = std::env::temp_dir().join(format!(
+        "pilot-file-navigation-missing-{}/nothing-here.txt",
+        std::process::id()
+    ));
+    let mut ctx = TestContext::new_with_local_file_navigation();
+    load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
+    ensure_initial_document_for_session(&mut ctx, Some("SID-1")).await;
+    ctx.process_async(json!({
+        "id": 90_122,
+        "method": "Page.navigate",
+        "sessionId": "SID-1",
+        "params": { "url": url::Url::from_file_path(&missing).unwrap().as_str() }
+    }))
+    .await;
+    let response = take_response_by_id(&mut ctx, 90_122);
+    assert_eq!(
+        response["result"]["errorText"],
+        json!("net::ERR_FILE_NOT_FOUND"),
+        "{response}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn continue_request_completes_paused_navigation_before_commit_events() {
     async fn page() -> impl axum::response::IntoResponse {
