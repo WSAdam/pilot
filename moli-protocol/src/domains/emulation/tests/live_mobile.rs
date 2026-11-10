@@ -41,6 +41,8 @@ async fn a_viewport_resize_reaches_a_resize_observer_on_the_body() {
         &mut ctx,
         r#"
         globalThis.observedSizes = [];
+        globalThis.resizeEvents = [];
+        addEventListener('resize', () => resizeEvents.push(innerWidth + 'x' + innerHeight));
         new ResizeObserver(() => observedSizes.push(innerWidth + 'x' + innerHeight))
             .observe(document.body || document.documentElement);
         new Promise(requestAnimationFrame).then(() => observedSizes.length)
@@ -64,7 +66,7 @@ async fn a_viewport_resize_reaches_a_resize_observer_on_the_body() {
                     ? resolve(true)
                     : requestAnimationFrame(check);
                 check();
-                setTimeout(() => resolve(observedSizes), 2000);
+                setTimeout(() => resolve({ observedSizes, resizeEvents }), 2000);
             })
         "#
         )
