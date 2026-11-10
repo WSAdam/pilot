@@ -1,109 +1,109 @@
 {
-  "date": "2026-11-04",
+  "date": "2026-11-10",
   "playwrightMcp": "0.0.84",
-  "pilot": "/Users/adam/Programming/Custom-browser/target/release/pilot",
+  "pilot": "/private/tmp/claude-503/-Users-adam-Programming-Custom-browser/f3060247-5efe-4814-b248-7e3d12ebe0a7/scratchpad/bin-2ed48764c/pilot",
   "passed": 39,
   "total": 39,
   "results": [
     {
       "tool": "browser_navigate",
       "ok": true,
-      "ms": 2048
+      "ms": 3092
     },
     {
       "tool": "browser_snapshot",
       "ok": true,
-      "ms": 54
+      "ms": 47
     },
     {
       "tool": "browser_click",
       "ok": true,
-      "ms": 1138
+      "ms": 1157
     },
     {
       "tool": "browser_click (double)",
       "ok": true,
-      "ms": 1146
+      "ms": 1177
     },
     {
       "tool": "browser_type",
       "ok": true,
-      "ms": 621
+      "ms": 637
     },
     {
       "tool": "browser_fill_form",
       "ok": true,
-      "ms": 647
+      "ms": 665
     },
     {
       "tool": "browser_select_option",
       "ok": true,
-      "ms": 616
+      "ms": 620
     },
     {
       "tool": "browser_hover",
       "ok": true,
-      "ms": 658
+      "ms": 660
     },
     {
       "tool": "browser_drag",
       "ok": true,
-      "ms": 1207
+      "ms": 1230
     },
     {
       "tool": "browser_drop",
       "ok": true,
-      "ms": 1179
+      "ms": 1181
     },
     {
       "tool": "browser_press_key",
       "ok": true,
-      "ms": 596
+      "ms": 600
     },
     {
       "tool": "browser_handle_dialog",
       "ok": true,
-      "ms": 1162
+      "ms": 1164
     },
     {
       "tool": "browser_file_upload",
       "ok": true,
-      "ms": 1172
+      "ms": 1200
     },
     {
       "tool": "browser_evaluate",
       "ok": true,
-      "ms": 597
+      "ms": 598
     },
     {
       "tool": "browser_console_messages",
       "ok": true,
-      "ms": 1180
+      "ms": 1189
     },
     {
       "tool": "browser_network_requests",
       "ok": true,
-      "ms": 1679
+      "ms": 1682
     },
     {
       "tool": "browser_network_request",
       "ok": true,
-      "ms": 89
+      "ms": 76
     },
     {
       "tool": "browser_navigate_back",
       "ok": true,
-      "ms": 645
+      "ms": 631
     },
     {
       "tool": "browser_tabs",
       "ok": true,
-      "ms": 148
+      "ms": 142
     },
     {
       "tool": "browser_take_screenshot",
       "ok": true,
-      "ms": 64
+      "ms": 59
     },
     {
       "tool": "browser_take_screenshot (full page)",
@@ -113,12 +113,12 @@
     {
       "tool": "browser_take_screenshot (element)",
       "ok": true,
-      "ms": 111
+      "ms": 109
     },
     {
       "tool": "browser_resize",
       "ok": true,
-      "ms": 562
+      "ms": 563
     },
     {
       "tool": "browser_emulate_media",
@@ -128,27 +128,27 @@
     {
       "tool": "browser_wait_for",
       "ok": true,
-      "ms": 89
+      "ms": 81
     },
     {
       "tool": "browser_find",
       "ok": true,
-      "ms": 52
+      "ms": 44
     },
     {
       "tool": "browser_pdf_save",
       "ok": true,
-      "ms": 51
+      "ms": 46
     },
     {
       "tool": "browser_mouse_click_xy",
       "ok": true,
-      "ms": 1588
+      "ms": 1604
     },
     {
       "tool": "browser_mouse_move_xy",
       "ok": true,
-      "ms": 1114
+      "ms": 1115
     },
     {
       "tool": "browser_mouse_down / browser_mouse_up",
@@ -158,47 +158,47 @@
     {
       "tool": "browser_mouse_drag_xy",
       "ok": true,
-      "ms": 2157
+      "ms": 2182
     },
     {
       "tool": "browser_mouse_wheel",
       "ok": true,
-      "ms": 1119
+      "ms": 1124
     },
     {
       "tool": "browser_run_code_unsafe",
       "ok": true,
-      "ms": 595
+      "ms": 593
     },
     {
       "tool": "browser_generate_locator",
       "ok": true,
-      "ms": 104
+      "ms": 83
     },
     {
       "tool": "browser_verify_element_visible",
       "ok": true,
-      "ms": 68
+      "ms": 56
     },
     {
       "tool": "browser_verify_text_visible",
       "ok": true,
-      "ms": 64
+      "ms": 57
     },
     {
       "tool": "browser_verify_list_visible",
       "ok": true,
-      "ms": 67
+      "ms": 70
     },
     {
       "tool": "browser_verify_value",
       "ok": true,
-      "ms": 74
+      "ms": 71
     },
     {
       "tool": "browser_close",
       "ok": true,
-      "ms": 61
+      "ms": 54
     }
   ]
 }
