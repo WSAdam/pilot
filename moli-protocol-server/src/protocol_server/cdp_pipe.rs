@@ -102,6 +102,78 @@ impl ProtocolServer {
         .await
     }
 
+    /// pilot: serves one browser over both the Chromium pipe and a TCP port,
+    /// as Chromium does when launched with `--remote-debugging-pipe` and
+    /// `--remote-debugging-port`. Both transports reach the same pages;
+    /// `Browser.close` or EOF on the pipe, or `Browser.close` over the port,
+    /// ends the instance for both.
+    pub async fn serve_pipe_and_port_with_local_clients(
+        &self,
+        input: OwnedFd,
+        output: OwnedFd,
+        on_bound: impl FnOnce(std::net::SocketAddr),
+        on_ready: impl FnOnce(LocalCdpConnector),
+    ) -> Result<()> {
+        self.serve_pipe_io_and_port_with_local_clients(
+            PipeFd::new(std::fs::File::from(input))?,
+            PipeFd::new(std::fs::File::from(output))?,
+            on_bound,
+            on_ready,
+        )
+        .await
+    }
+
+    async fn serve_pipe_io_and_port_with_local_clients(
+        &self,
+        input: impl AsyncRead + Unpin,
+        output: impl AsyncWrite + Unpin + Send + 'static,
+        on_bound: impl FnOnce(std::net::SocketAddr),
+        on_ready: impl FnOnce(LocalCdpConnector),
+    ) -> Result<()> {
+        let listener = tokio::net::TcpListener::bind(self.config.bind_target())
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to bind protocol server to {}:{}",
+                    self.config.host, self.config.port
+                )
+            })?;
+        let addr = listener
+            .local_addr()
+            .context("failed to read bound protocol socket address")?;
+        tracing::info!(%addr, "🚀 protocol server listening beside the CDP pipe");
+        on_bound(addr);
+
+        let control = BrowserInstanceControl::new();
+        let app_state = AppState::new_with_storage_partition_and_runtime_config(
+            addr,
+            self.storage_partition.clone(),
+            self.navigation_runtime_config.clone(),
+            self.config.screencast_interval_ms,
+            control.clone(),
+        )?;
+        let endpoint = app_state.cdp_owner_registry.shared_owner()?;
+        on_ready(LocalCdpConnector::new(
+            app_state.cdp_owner_registry.clone(),
+            control.clone(),
+        ));
+        // The listener owns shutdown (CDP owner, Classic sessions, storage
+        // flush); the pipe only asks for it when its client goes away.
+        let pipe = async {
+            let result = run_pipe(input, output, endpoint, control.clone()).await;
+            control.request(InstanceCommand::Shutdown);
+            result
+        };
+        let (served, piped) = tokio::join!(super::serve_listener(listener, app_state), pipe);
+        match (piped, served) {
+            (Err(error), Err(served)) => {
+                Err(error.context(format!("port also failed: {served:#}")))
+            }
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+
     #[cfg(test)]
     async fn serve_pipe_io(
         &self,
@@ -336,5 +408,99 @@ mod tests {
     #[tokio::test]
     async fn pipe_browser_close_stops_with_input_still_open() {
         exercise_pipe(true).await;
+    }
+
+    async fn http_get(addr: std::net::SocketAddr, path: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(
+                format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    // 2026-11-10 (pilot): given --remote-debugging-pipe and
+    // --remote-debugging-port, pilot served only the pipe and never announced
+    // the port, so Playwright's launch hung waiting for "DevTools listening on"
+    // (Playwright MCP http.spec relaunches a crashed shared browser).
+    #[tokio::test]
+    async fn pipe_and_port_serve_one_browser_and_close_together() {
+        let (client_input, server_input) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (server_output, client_output) = std::os::unix::net::UnixStream::pair().unwrap();
+        let server_input = PipeFd::new(std::fs::File::from(std::os::fd::OwnedFd::from(
+            server_input,
+        )))
+        .unwrap();
+        let server_output = PipeFd::new(std::fs::File::from(std::os::fd::OwnedFd::from(
+            server_output,
+        )))
+        .unwrap();
+        client_input.set_nonblocking(true).unwrap();
+        client_output.set_nonblocking(true).unwrap();
+        let mut input = tokio::net::UnixStream::from_std(client_input).unwrap();
+        let mut output = BufReader::new(tokio::net::UnixStream::from_std(client_output).unwrap());
+        let server = ProtocolServer::new(ServerConfig {
+            host: "127.0.0.1".to_owned(),
+            port: 0,
+            ..ServerConfig::default()
+        });
+        let (bound_tx, bound_rx) = tokio::sync::oneshot::channel();
+        let serving = tokio::spawn(async move {
+            server
+                .serve_pipe_io_and_port_with_local_clients(
+                    server_input,
+                    server_output,
+                    move |addr| {
+                        let _ = bound_tx.send(addr);
+                    },
+                    |_| {},
+                )
+                .await
+        });
+        let addr = bound_rx
+            .await
+            .expect("the port should be bound and announced");
+
+        input
+            .write_all(b"{\"id\":1,\"method\":\"Target.createTarget\",\"params\":{\"url\":\"about:blank\"}}\0")
+            .await
+            .unwrap();
+        let target_id = loop {
+            let mut frame = Vec::new();
+            output.read_until(0, &mut frame).await.unwrap();
+            assert_eq!(frame.pop(), Some(0));
+            let response: Value = serde_json::from_slice(&frame).unwrap();
+            if response["id"] == 1 {
+                break response["result"]["targetId"]
+                    .as_str()
+                    .expect("createTarget over the pipe returns a target id")
+                    .to_owned();
+            }
+        };
+
+        let version = http_get(addr, "/json/version").await;
+        assert!(version.starts_with("HTTP/1.1 200"), "{version}");
+        assert!(version.contains("webSocketDebuggerUrl"), "{version}");
+        let list = http_get(addr, "/json/list").await;
+        assert!(
+            list.contains(&target_id),
+            "the port lists the page the pipe created (one browser): {list}"
+        );
+
+        input.shutdown().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), serving)
+            .await
+            .expect("EOF on the pipe ends the port too")
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::net::TcpStream::connect(addr).await.is_err(),
+            "the port stops accepting once the pipe ends"
+        );
     }
 }
