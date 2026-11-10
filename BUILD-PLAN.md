@@ -10,7 +10,7 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 |---|---|---|---|---|---|---|---|
 | 0 | none | done; open-web re-measure moved to Build 1 (72 MB free on 2026-11-09) | host-OS identity, TODO, this file | — | — | 5.2 GB (release only) | daa26d280, 06f7f448c, this commit |
 | 1 | heavy | done 2026-11-10 on GitHub, gate run 42733332378 (the fourth on `gate/build1`). Earlier runs caught a missing Linux library, a Log/Console regression from the fix itself, and inline and handler errors arriving without the error object. Open-web re-measure deferred: 186 MB free on the Mac. | pilot gate workflow; console and uncaught errors; MCP tools re-measure (39/39) | Linux: clippy 8.6 GB, nextest 11.5 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0. | 1 h 58 min. Linux: clippy 11 min, nextest 35 + 2 min, release 15 min, smoke 1 min. Mac: release 48 min, conformance 25/25 | release binaries only (downloaded) | 5a841c923 … 2ed48764c, this commit |
-| triage | none | queued | 45 Playwright MCP suite candidates | — | | — | |
+| triage | none | done 2026-11-10. The 2026-11-03 suite run was flawed: about 256 CLI tests drove installed Chrome, and each test's flags leaked into the next. Re-measured with every test on pilot: 569 of 830 pass. Of the 108 failures, 68 are harness and 40 come from 12 pilot gaps, each with a red `todo` conformance test (`pilot/conformance/suite-gaps.test.mjs`). 20 of the 48 old candidates now pass. | Playwright MCP suite re-measured; 12 gaps sorted into Builds 2–4 | test runner 374 MB plus one pilot; your Mac compiled nothing | full suite 13.8 min, one worker | release binaries only | this commit |
 | 2 | light | queued | protocol-side suite gaps | | | | |
 | 3 | heavy | queued | renderer-side suite gaps, meta viewport | | | | |
 | 4 | heavy | queued | WebMCP | | | | |
@@ -72,43 +72,43 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
   - page errors carry Moli's wrapper message.
 - Should clear 3 Playwright MCP suite candidates (`console.spec`).
 
-### Triage pass: none
-Go through the remaining 45 suite candidates against the current binary:
+### Triage pass: none (done 2026-11-10)
+Went through the remaining 45 suite candidates against the current binary:
 - sort each into a pilot gap (light or heavy) or a Chrome-only or test-harness difference;
 - harness differences get a note in `compat/` and need no build;
 - every gap gets a conformance test, proven red.
 
-The batches below are my expected split. Triage confirms it.
+The batches below are the split triage confirmed. Each gap's conformance test is in `pilot/conformance/suite-gaps.test.mjs`, marked `todo` with its build until that build removes the mark. Rerun the suite with `scripts/playwright-mcp-suite.sh`.
 
-### Build 2: light batch (expected to be protocol or pilot crates only)
-| Item | Candidates |
-|---|---|
-| `browser_cookie_list` and `browser_cookie_delete` for cookies on other domains | 2 |
-| `file://` navigation when `allowUnrestrictedFileAccess` is on | 1 |
-| WebP screenshots; a viewport screenshot without a snapshot | 2 (heavy if the WebP encoder is missing from `moli-image`) |
-| `browser_network_request` full request and response details | 2 |
-| Request blocking for origins that aren't listed, plus Fetch interception edge cases (TODO) | 2 |
-| A dialog during navigate-back, plus dialog events reaching every CDP session (TODO) | 1 |
-| Launch: executable path, closing once when stdin ends, the missing-executable message | 3 |
-| Webstorage capability | 1 |
-| CLI isolated and persistent sessions, config, roots, secrets, tracing, file-upload roots | about 14, mostly expected to be harness and need no build |
-| Protocol TODOs: about:blank start page, `HeadlessChrome` user agent, execution-context `auxData`, refs for a second MCP session | — |
-| Moli's own `Runtime.exceptionThrown` and `Runtime.consoleAPICalled` carry milliseconds since the epoch, not monotonic seconds (`moli-protocol` `observable_output` `emit_background_events`). After Build 1 this path carries only internal dispatch failures. | TODO bug |
+### Build 2: light batch (protocol and pilot crates only; confirmed by triage)
+| Item | Where | Suite tests |
+|---|---|---|
+| A cookie set by domain alone for a site the page never visited is dropped: `Storage.setCookies` uses the page URL instead of building one from the cookie's domain | `moli-protocol` `storage/normalize.rs` | 2 |
+| Request bodies are missing: `Network.requestWillBeSent` carries `postData` but not `postDataEntries`, which is all current Playwright reads | `moli-protocol` network events (3 builders) | 6 |
+| WebP screenshots: re-encode the renderer's PNG with the `image` crate's WebP encoder, which is already in the build, so the renderer doesn't change | `moli-protocol` `page/capture.rs` | 2 |
+| `--proxy-server` and `--proxy-bypass-list` are dropped as unknown switches; map them to moli's `--http-proxy` and `--http-no-proxy`. Proxy credentials from the URL also fail in Fetch interception; recheck once the switch is mapped. | `pilot/src/argv.rs` | 3 |
+| A launch with both `--remote-debugging-pipe` and `--remote-debugging-port` serves only the pipe and never prints `DevTools listening on`, so Playwright's launch hangs | `pilot/src/argv.rs`, `pilot/src/serve.rs` | 1 |
+| Protocol TODOs: about:blank start page, `HeadlessChrome` user agent, execution-context `auxData`, refs for a second MCP session | — | — |
+| Moli's own `Runtime.exceptionThrown` and `Runtime.consoleAPICalled` carry milliseconds since the epoch, not monotonic seconds (`moli-protocol` `observable_output` `emit_background_events`). After Build 1 this path carries only internal dispatch failures. | `moli-protocol` | TODO bug |
 
-### Build 3: heavy batch, renderer gaps
-| Item | Candidates |
-|---|---|
-| Options in a `<select multiple>` get refs | 1 |
-| `browser_resize` changes `innerWidth` and fires ResizeObserver | 1 |
-| `browser_mouse_click_xy` hits the right element | 1 |
-| Stitched iframe snapshot (times out today) | 1 |
-| `--init-script` with `--isolated` | 1 |
-| A download link fires a download | 1 |
-| Recorder (4 tests) | 4 |
-| Phone emulation honours `<meta name=viewport>` | small item |
+Triage moved `file://` and the navigate-back dialog to Build 3: both need renderer work. It dropped the rest of the old list: those tests pass now, or they fail only in the harness.
+
+### Build 3: heavy batch, renderer gaps (confirmed by triage)
+| Item | Where | Suite tests |
+|---|---|---|
+| `hidePopover()` on a closed popover throws `InvalidStateError` (the old spec; Chrome returns quietly). Playwright's highlight overlay calls it on a fresh element, so the recorder never installs. Upstream's test `show_and_hide_popover_throw_on_redundant_state_changes` pins the old spec; it changes with the fix, because pilot's requirement is Chrome's behaviour. | `moli-renderer-v8` `native_bridge/element/popover.rs` | 5 (recorder) |
+| An iframe nested in a `data:` URL iframe never becomes a frame, and the page snapshot fails with "Maximum call stack size exceeded" | renderer frames | 2 |
+| Options of a `<select multiple>` listbox have 0×0 boxes, so they get no refs | layout | 1 |
+| A ResizeObserver on `document.body` doesn't fire on a viewport resize (`innerWidth` does change) | renderer | 1 |
+| `beforeunload` never runs for navigations Playwright starts (goto, back, forward), so a cancelling page opens no dialog | renderer navigation | 3 |
+| Every `file://` navigation is refused and no local-file loader exists. Chrome loads local files; MCP gates them itself. | `moli-url-policy` callers, renderer navigation loader | 1 |
+| Phone emulation honours `<meta name=viewport>` | | small item |
+
+Triage dropped `browser_mouse_click_xy`, `--init-script` with `--isolated`, and the download link: they pass now.
 
 ### Build 4: heavy, WebMCP
-- 7 suite candidates: page tools listed as MCP tools, calling them, iframes, switching tabs.
+- 13 suite tests (7 MCP, 6 CLI): page tools listed as MCP tools, calling them, iframes, switching tabs.
+- Cause found in triage: pilot already has `document.modelContext` and the WebMCP CDP domain. But Playwright calls `getTools()` from its utility world, and pilot keeps one tool list per JS world, where Chrome keeps one per document.
 - `moli-webmcp` sits below the renderer.
 - It's feature work, so it gets its own build to keep Build 3 small.
 
