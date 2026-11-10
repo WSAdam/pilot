@@ -1594,7 +1594,14 @@ pub(super) fn node_for_describe_node_object_snapshot(
         top_frame_id
     };
     let mut node = node_snapshot_to_cdp(snapshot, top_snapshot_node_id, frame_id_for_html)?;
+    // pilot: an <iframe>/<frame> element keeps its own content frame (set by
+    // node_snapshot_to_cdp) or none, never the frame that contains it. Stamping
+    // the containing frame sent Playwright back into the same frame forever
+    // ("Maximum call stack size exceeded" in nested-frame aria snapshots).
+    let is_frame_owner =
+        snapshot.is_element && matches!(snapshot.local_name.as_str(), "iframe" | "frame");
     if let Some(child_frame_id) = child_frame_id
+        && !is_frame_owner
         && let Some(node) = node.as_object_mut()
     {
         node.insert("frameId".to_owned(), json!(child_frame_id));
@@ -1856,5 +1863,66 @@ pub(super) fn devtools_dom_geometry_result_value(result: &DevToolsDomGeometryRes
         json!({
             "quads": result.quads.iter().map(|quad| &quad.points).collect::<Vec<_>>()
         })
+    }
+}
+
+#[cfg(test)]
+mod pilot_frame_owner_tests {
+    use super::*;
+
+    fn iframe_snapshot(frame_id: Option<&str>) -> DocumentNodeSnapshot {
+        DocumentNodeSnapshot {
+            node_id: DocumentSnapshotNodeId::new(5),
+            parent_id: Some(DocumentSnapshotNodeId::new(4)),
+            inspector_identity: None,
+            inspector_parent_identity: None,
+            frontend_node_id: Some(10_005),
+            parent_frontend_node_id: Some(10_004),
+            backend_node_id: Some(20_005),
+            frame_id: frame_id.map(str::to_owned),
+            node_type: 1,
+            node_name: "IFRAME".to_owned(),
+            local_name: "iframe".to_owned(),
+            node_value: String::new(),
+            child_count: 0,
+            document_url: "about:srcdoc".to_owned(),
+            base_url: "about:srcdoc".to_owned(),
+            namespace_uri: Some("http://www.w3.org/1999/xhtml".to_owned()),
+            attributes: Vec::new(),
+            document_type_name: None,
+            public_id: None,
+            system_id: None,
+            is_element: true,
+            has_geometry: true,
+            shadow_root_type: None,
+            shadow_roots: Vec::new(),
+            pseudo_type: None,
+            pseudo_elements: Vec::new(),
+            associated: None,
+            children: Vec::new(),
+        }
+    }
+
+    // 2026-11-10 (pilot): DOM.describeNode on an <iframe> inside a child frame
+    // reported the child frame (the one containing it) as the iframe's frameId,
+    // so Playwright re-entered the same frame forever while stitching a
+    // nested-frame aria snapshot (Playwright MCP iframes.spec stitched frames).
+    #[test]
+    fn an_iframe_inside_a_child_frame_never_reports_its_containing_frame() {
+        let loaded = node_for_describe_node_object_snapshot(
+            &iframe_snapshot(Some("FRAME-GRANDCHILD")),
+            Some("FRAME-CHILD"),
+            Some("FRAME-TOP"),
+        )
+        .expect("bound iframe snapshot converts");
+        assert_ne!(loaded["frameId"], json!("FRAME-CHILD"), "{loaded}");
+
+        let unloaded = node_for_describe_node_object_snapshot(
+            &iframe_snapshot(None),
+            Some("FRAME-CHILD"),
+            Some("FRAME-TOP"),
+        )
+        .expect("bound iframe snapshot converts");
+        assert_ne!(unloaded["frameId"], json!("FRAME-CHILD"), "{unloaded}");
     }
 }
