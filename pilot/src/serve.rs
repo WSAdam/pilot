@@ -32,6 +32,15 @@ pub async fn run_with_local_clients(
     );
     match &launch.transport {
         DebuggingTransport::Pipe => serve_pipe(&server, on_ready).await,
+        DebuggingTransport::PipeAndPort { .. } => {
+            let user_data_dir = launch.user_data_dir.clone();
+            serve_pipe_and_port(
+                &server,
+                move |address| announce(address, user_data_dir.as_deref()),
+                on_ready,
+            )
+            .await
+        }
         DebuggingTransport::Port { .. } => {
             let user_data_dir = launch.user_data_dir.clone();
             server
@@ -72,6 +81,30 @@ async fn serve_pipe(
         .serve_pipe_with_local_clients(input, output, on_ready)
         .await
         .context("protocol pipe failed")
+}
+
+/// Chromium with `--remote-debugging-pipe` and `--remote-debugging-port`: one
+/// browser behind both, the port announced as usual.
+#[cfg(unix)]
+async fn serve_pipe_and_port(
+    server: &ProtocolServer,
+    on_bound: impl FnOnce(SocketAddr),
+    on_ready: impl FnOnce(LocalCdpConnector),
+) -> Result<()> {
+    let (input, output) = take_inherited_pipe_descriptors()?;
+    server
+        .serve_pipe_and_port_with_local_clients(input, output, on_bound, on_ready)
+        .await
+        .context("protocol pipe and port failed")
+}
+
+#[cfg(not(unix))]
+async fn serve_pipe_and_port(
+    _server: &ProtocolServer,
+    _on_bound: impl FnOnce(SocketAddr),
+    _on_ready: impl FnOnce(LocalCdpConnector),
+) -> Result<()> {
+    anyhow::bail!("--remote-debugging-pipe is only supported on Unix")
 }
 
 #[cfg(not(unix))]

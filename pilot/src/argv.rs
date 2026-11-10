@@ -15,6 +15,10 @@ pub enum DebuggingTransport {
     /// `--remote-debugging-port` (0 picks a free port), bound to
     /// `--remote-debugging-address`.
     Port { address: String, port: u16 },
+    /// Both switches: Chromium serves the pipe and the port, one browser
+    /// behind both, and announces the port. Playwright waits for that
+    /// announcement when a launch names a port.
+    PipeAndPort { address: String, port: u16 },
 }
 
 /// The parts of a Chromium command line that pilot acts on.
@@ -27,6 +31,10 @@ pub struct ChromiumLaunch {
     /// persistent context.
     pub start_url: Option<String>,
     pub no_startup_window: bool,
+    /// `--proxy-server`: where Playwright's `proxy` launch option points.
+    pub proxy_server: Option<String>,
+    /// `--proxy-bypass-list`: hosts that skip the proxy, `;`-separated.
+    pub proxy_bypass_list: Option<String>,
     /// Switches pilot accepts but does not act on, kept for diagnostics.
     pub ignored_switches: Vec<String>,
 }
@@ -46,6 +54,8 @@ impl ChromiumLaunch {
         let mut address = None;
         let mut positional = Vec::new();
         let mut no_startup_window = false;
+        let mut proxy_server = None;
+        let mut proxy_bypass_list = None;
         let mut ignored_switches = Vec::new();
         let mut switches_ended = false;
 
@@ -72,17 +82,20 @@ impl ChromiumLaunch {
                 "remote-debugging-port" => port = value.and_then(|value| value.parse().ok()),
                 "remote-debugging-address" => address = value.map(str::to_owned),
                 "no-startup-window" => no_startup_window = true,
+                "proxy-server" => proxy_server = value.map(str::to_owned),
+                "proxy-bypass-list" => proxy_bypass_list = value.map(str::to_owned),
                 _ => ignored_switches.push(name.to_owned()),
             }
         }
 
-        let transport = if pipe {
-            DebuggingTransport::Pipe
-        } else {
-            DebuggingTransport::Port {
-                address: address.unwrap_or_else(|| DEFAULT_DEBUGGING_ADDRESS.to_owned()),
+        let address = address.unwrap_or_else(|| DEFAULT_DEBUGGING_ADDRESS.to_owned());
+        let transport = match (pipe, port) {
+            (true, None) => DebuggingTransport::Pipe,
+            (true, Some(port)) => DebuggingTransport::PipeAndPort { address, port },
+            (false, port) => DebuggingTransport::Port {
+                address,
                 port: port.unwrap_or(DEFAULT_DEBUGGING_PORT),
-            }
+            },
         };
         Self {
             headless,
@@ -90,6 +103,8 @@ impl ChromiumLaunch {
             transport,
             start_url: positional.into_iter().next(),
             no_startup_window,
+            proxy_server,
+            proxy_bypass_list,
             ignored_switches,
         }
     }
@@ -109,15 +124,52 @@ impl ChromiumLaunch {
         }
         match &self.transport {
             DebuggingTransport::Pipe => args.push("--remote-debugging-pipe".into()),
-            DebuggingTransport::Port { address, port } => {
+            // `moli serve` takes one transport; pilot's own serve loop runs the
+            // pipe beside this port (serve.rs).
+            DebuggingTransport::Port { address, port }
+            | DebuggingTransport::PipeAndPort { address, port } => {
                 args.push("--host".into());
                 args.push(address.into());
                 args.push("--port".into());
                 args.push(port.to_string().into());
             }
         }
+        if let Some(proxy_server) = &self.proxy_server {
+            args.push("--http-proxy".into());
+            args.push(proxy_server.into());
+        }
+        if let Some(no_proxy) = self.proxy_bypass_list.as_deref().and_then(moli_no_proxy) {
+            args.push("--http-no-proxy".into());
+            args.push(no_proxy.into());
+        }
         args
     }
+}
+
+/// Chromium's `--proxy-bypass-list` as moli's `--http-no-proxy` list.
+/// Chromium-only rules such as `<-loopback>` (which Playwright always adds,
+/// meaning "proxy loopback too") and `<local>` are dropped; `*.example.com` and
+/// `.example.com` become `example.com`, which moli matches with its subdomains;
+/// a `:port` suffix is dropped because moli matches hosts only.
+fn moli_no_proxy(bypass_list: &str) -> Option<String> {
+    let hosts = bypass_list
+        .split([';', ','])
+        .map(str::trim)
+        .filter(|rule| !rule.is_empty() && !rule.starts_with('<'))
+        .map(|rule| {
+            let rule = rule
+                .trim_start_matches("http://")
+                .trim_start_matches("https://");
+            let rule = rule.strip_prefix("*.").unwrap_or(rule);
+            let rule = rule.strip_prefix('.').unwrap_or(rule);
+            match rule.rsplit_once(':') {
+                Some((host, port)) if !host.contains(':') && port.parse::<u16>().is_ok() => host,
+                _ => rule,
+            }
+        })
+        .filter(|host| !host.is_empty())
+        .collect::<Vec<_>>();
+    (!hosts.is_empty()).then(|| hosts.join(","))
 }
 
 #[cfg(test)]
@@ -284,5 +336,76 @@ mod tests {
             ]
             .map(OsString::from)
         );
+    }
+
+    fn string_args(launch: &ChromiumLaunch) -> Vec<String> {
+        launch
+            .moli_serve_args()
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    // 2026-11-10: a launch naming a port beside Playwright's pipe served only
+    // the pipe and never announced the port, so Playwright's launch hung
+    // waiting for "DevTools listening on" (Playwright MCP http.spec).
+    #[test]
+    fn a_pipe_launch_that_names_a_port_serves_both() {
+        let launch = ChromiumLaunch::parse([
+            "--headless",
+            "--remote-debugging-pipe",
+            "--remote-debugging-port=9411",
+        ]);
+        assert_eq!(
+            launch.transport,
+            DebuggingTransport::PipeAndPort {
+                address: DEFAULT_DEBUGGING_ADDRESS.to_owned(),
+                port: 9411,
+            }
+        );
+        let args = string_args(&launch);
+        assert!(args.windows(2).any(|pair| pair == ["--port", "9411"]));
+        assert!(!args.iter().any(|arg| arg == "--remote-debugging-pipe"));
+        Cli::try_parse_from(args).expect("moli accepts the translated command line");
+    }
+
+    // 2026-11-10: --proxy-server was dropped as an unknown switch, so a
+    // browser launched with Playwright's proxy option went direct (Playwright
+    // MCP launch.spec --proxy-server).
+    #[test]
+    fn proxy_switches_reach_moli_as_its_proxy_settings() {
+        let launch = ChromiumLaunch::parse([
+            "--remote-debugging-pipe",
+            "--proxy-server=http://127.0.0.1:3128",
+            "--proxy-bypass-list=<-loopback>;*.example.com;.corp.test;intranet:8080",
+        ]);
+        assert!(
+            launch.ignored_switches.is_empty(),
+            "{:?}",
+            launch.ignored_switches
+        );
+        let args = string_args(&launch);
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--http-proxy", "http://127.0.0.1:3128"]),
+            "{args:?}"
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--http-no-proxy", "example.com,corp.test,intranet"]),
+            "{args:?}"
+        );
+        let cli = Cli::try_parse_from(args).expect("moli accepts the translated command line");
+        AppConfig::from_cli(&cli).expect("moli builds a configuration with the proxy");
+    }
+
+    #[test]
+    fn playwrights_loopback_rule_alone_bypasses_nothing() {
+        let launch = ChromiumLaunch::parse([
+            "--proxy-server=socks5://127.0.0.1:1080",
+            "--proxy-bypass-list=<-loopback>",
+        ]);
+        let args = string_args(&launch);
+        assert!(!args.iter().any(|arg| arg == "--http-no-proxy"), "{args:?}");
     }
 }
