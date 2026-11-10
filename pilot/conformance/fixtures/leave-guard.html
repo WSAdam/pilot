@@ -1,0 +1,10 @@
+<!doctype html>
+<title>Leave guard</title>
+<button id="touch">Click me</button>
+<script>
+  // Cancelling beforeunload asks the user to confirm leaving (a beforeunload dialog).
+  addEventListener('beforeunload', (event) => {
+    event.preventDefault();
+    event.returnValue = '';
+  });
+</script>
