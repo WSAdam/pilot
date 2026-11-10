@@ -119,13 +119,13 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Subresource requests (scripts, styles, images, fetch) go out in Chrome's header order; today only navigations are sorted, because Chrome's subresource order has not been checked against a real Chrome
 - [ ] eBay still answers 403 with Chrome's header order too (2026-11-04): Akamai refuses the first request from a fresh profile before any script runs (compat/bot-walls.md)
 - [x] pilot's browser identity names the host's OS: on a Mac the User-Agent, Sec-CH-UA-Platform and navigator.platform say macOS, matching the TCP/IP fingerprint, instead of Moli's default Windows
-- [ ] Runtime.consoleAPICalled carries a timestamp in milliseconds since the epoch, as Chrome does; pilot sends 0, so Playwright MCP's console log reads [-1793731413422ms] and drops the warning line (console.spec)
+- [x] Runtime.consoleAPICalled carries a timestamp in milliseconds since the epoch, as Chrome does; pilot sends 0, so Playwright MCP's console log reads [-1793731413422ms] and drops the warning line (console.spec)
 - [ ] Runtime.exceptionThrown carries its timestamp in milliseconds since the epoch; pilot sends seconds
-- [ ] An uncaught error thrown by an inline script while the page loads reaches Playwright as a pageerror and Runtime.exceptionThrown (Playwright MCP console.spec "page error")
-- [ ] An uncaught error thrown by an event handler (onclick, addEventListener) reaches Playwright as a pageerror and Runtime.exceptionThrown
-- [ ] A page error's message is the error's own message (timer blank), not Moli's dispatch text (timer callback dispatch failed: callback `Window Web IDL callback` threw: <unknown>: Uncaught Error: timer blank)
+- [x] An uncaught error thrown by an inline script while the page loads reaches Playwright as a pageerror and Runtime.exceptionThrown (Playwright MCP console.spec "page error")
+- [x] An uncaught error thrown by an event handler (onclick, addEventListener) reaches Playwright as a pageerror and Runtime.exceptionThrown
+- [x] A page error's message is the error's own message (timer blank), not Moli's dispatch text (timer callback dispatch failed: callback `Window Web IDL callback` threw: <unknown>: Uncaught Error: timer blank)
 - [ ] Record→replay fast path: the first run of a task drives pilot and records the requests each action fires; later runs replay them through pilot's network stack (cookies, Chrome TLS/HTTP/2), falling back to the browser when a replay fails (planned after the MCP gaps, 2026-11-04)
-- [ ] pilot builds run on GitHub (.github/workflows/pilot-gate.yml): the Linux and macOS jobs pass on gate/build1 and the macOS binary downloads into target/release (needs live run)
-- [ ] A timer error still reaches Log.entryAdded and Console.messageAdded after the console fix, without a second Runtime.exceptionThrown (upstream moli-protocol log and console tests; broke in gate run 2)
+- [x] pilot builds run on GitHub (.github/workflows/pilot-gate.yml): the Linux and macOS jobs pass on gate/build1 and the macOS binary downloads into target/release (needs live run)
+- [x] A timer error still reaches Log.entryAdded and Console.messageAdded after the console fix, without a second Runtime.exceptionThrown (upstream moli-protocol log and console tests; broke in gate run 2)
 - [ ] A <script> inserted from page.evaluate that throws reports its error as uncaught (a pageerror) and the insert returns normally, as in Chrome; pilot makes page.evaluate throw the script's error
 - [ ] Find why V8 sends Runtime.exceptionThrown without the error object for exceptions thrown by page-compiled code (inline scripts, page timers, attribute and addEventListener handlers) but with it for page.evaluate code, even in the same realm (gate run 3)

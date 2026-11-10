@@ -9,7 +9,7 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 | Build | Kind | Status | Units | Peak RSS | Wall time | target/ after | Commits |
 |---|---|---|---|---|---|---|---|
 | 0 | none | done; open-web re-measure moved to Build 1 (72 MB free on 2026-11-09) | host-OS identity, TODO, this file | — | — | 5.2 GB (release only) | daa26d280, 06f7f448c, this commit |
-| 1 | heavy | running on GitHub (`gate/build1`), the first gate run there. It was on hold locally: 5.1 GB free, about 7 GB needed. | pilot gate workflow; console and uncaught errors; open-web re-measure | | | | |
+| 1 | heavy | done 2026-11-10 on GitHub, gate run 42733332378 (the fourth on `gate/build1`). Earlier runs caught a missing Linux library, a Log/Console regression from the fix itself, and inline and handler errors arriving without the error object. Open-web re-measure deferred: 186 MB free on the Mac. | pilot gate workflow; console and uncaught errors; MCP tools re-measure (39/39) | Linux: clippy 8.6 GB, nextest 11.5 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0. | 1 h 58 min. Linux: clippy 11 min, nextest 35 + 2 min, release 15 min, smoke 1 min. Mac: release 48 min, conformance 25/25 | release binaries only (downloaded) | 5a841c923 … 2ed48764c, this commit |
 | triage | none | queued | 45 Playwright MCP suite candidates | — | | — | |
 | 2 | light | queued | protocol-side suite gaps | | | | |
 | 3 | heavy | queued | renderer-side suite gaps, meta viewport | | | | |
