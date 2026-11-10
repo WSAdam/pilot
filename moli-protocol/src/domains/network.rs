@@ -86,7 +86,7 @@ pub(crate) use events::{
     emit_request_will_be_sent_extra_info, emit_response_received,
     emit_response_received_extra_info, emit_response_received_without_extra_info_event,
     fetch_subresource_initial_request_network_events, headers_as_json_object,
-    request_headers_as_json_object,
+    request_headers_as_json_object, request_post_data_entries,
 };
 pub use events::{fetch_auth_required_params, fetch_request_paused_params};
 #[cfg(test)]

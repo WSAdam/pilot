@@ -956,6 +956,7 @@ fn emit_network_before_request_sent(
     });
     if let Some(request_body) = network_event.request_body.as_ref() {
         params["request"]["postData"] = json!(request_body);
+        params["request"]["postDataEntries"] = request_post_data_entries(request_body);
     }
     if let Some(redirect_response) = network_event.redirect_response.as_ref() {
         params["redirectResponse"] = network_redirect_response_payload(redirect_response);
@@ -1040,6 +1041,7 @@ fn fetch_request_payload(network_event: &NetworkRequestEvent) -> Value {
     });
     if let Some(request_body) = network_event.request_body.as_ref() {
         request["postData"] = json!(request_body);
+        request["postDataEntries"] = request_post_data_entries(request_body);
     }
     request
 }
@@ -1180,6 +1182,14 @@ fn request_cookie_header_value(
             .collect::<Vec<_>>()
             .join("; "),
     )
+}
+
+/// pilot: the request body as Chrome's `postDataEntries`, one entry holding the
+/// body's bytes in base64. Current Playwright reads only `postDataEntries`, so
+/// without it `request.postData()` is null though `postData` is sent.
+pub(crate) fn request_post_data_entries(request_body: &str) -> Value {
+    use base64::Engine as _;
+    json!([{ "bytes": base64::engine::general_purpose::STANDARD.encode(request_body.as_bytes()) }])
 }
 
 pub(crate) fn request_headers_as_json_object(

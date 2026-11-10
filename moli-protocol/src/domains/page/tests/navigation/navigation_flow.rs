@@ -911,6 +911,12 @@ async fn renderer_top_level_form_post_preserves_request_through_document_commit(
         post_request["params"]["request"]["postData"],
         json!("a+b=c%2Bd")
     );
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a POST
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        post_request["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "YStiPWMlMkJk" }])
+    );
     assert_eq!(
         post_request["params"]["request"]["headers"]["Content-Type"],
         json!("application/x-www-form-urlencoded")

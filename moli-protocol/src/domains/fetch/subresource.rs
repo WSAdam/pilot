@@ -45,6 +45,7 @@ fn subresource_request_paused_payload(
     });
     if let Some(request_body) = request_body {
         payload["request"]["postData"] = json!(request_body);
+        payload["request"]["postDataEntries"] = network::request_post_data_entries(request_body);
     }
     payload
 }

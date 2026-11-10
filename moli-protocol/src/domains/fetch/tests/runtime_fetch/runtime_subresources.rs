@@ -112,6 +112,12 @@ async fn runtime_fetch_subresource_pauses_until_continue_request_then_resolves_p
     );
     assert_eq!(paused["params"]["request"]["hasPostData"], true);
     assert_eq!(paused["params"]["request"]["postData"], "payload");
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a fetch
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        paused["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "cGF5bG9hZA==" }])
+    );
     let request = network_request_announced_before_fetch_pause(&ctx, &paused, Some("Fetch"));
     let network_request_id = request["params"]["requestId"]
         .as_str()
@@ -422,6 +428,12 @@ async fn runtime_fetch_subresource_request_animation_frame_pauses_until_continue
     );
     assert_eq!(paused["params"]["request"]["hasPostData"], true);
     assert_eq!(paused["params"]["request"]["postData"], "payload");
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a fetch
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        paused["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "cGF5bG9hZA==" }])
+    );
     let request = network_request_announced_before_fetch_pause(&ctx, &paused, Some("Fetch"));
     let network_request_id = request["params"]["requestId"]
         .as_str()
@@ -592,6 +604,12 @@ async fn runtime_fetch_subresource_queue_microtask_pauses_until_continue_request
     );
     assert_eq!(paused["params"]["request"]["hasPostData"], true);
     assert_eq!(paused["params"]["request"]["postData"], "payload");
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a fetch
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        paused["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "cGF5bG9hZA==" }])
+    );
     let request = network_request_announced_before_fetch_pause(&ctx, &paused, Some("Fetch"));
     let network_request_id = request["params"]["requestId"]
         .as_str()
@@ -735,6 +753,12 @@ async fn runtime_fetch_subresource_promise_then_pauses_until_continue_request_th
     );
     assert_eq!(paused["params"]["request"]["hasPostData"], true);
     assert_eq!(paused["params"]["request"]["postData"], "payload");
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a fetch
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        paused["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "cGF5bG9hZA==" }])
+    );
     let request = network_request_announced_before_fetch_pause(&ctx, &paused, Some("Fetch"));
     let network_request_id = request["params"]["requestId"]
         .as_str()
@@ -894,6 +918,12 @@ async fn runtime_fetch_subresource_request_idle_callback_pauses_until_continue_r
     );
     assert_eq!(paused["params"]["request"]["hasPostData"], true);
     assert_eq!(paused["params"]["request"]["postData"], "payload");
+    // 2026-11-10 (pilot): Playwright reads only postDataEntries, so a fetch
+    // body carried only as postData reached it as request.postData() == null.
+    assert_eq!(
+        paused["params"]["request"]["postDataEntries"],
+        json!([{ "bytes": "cGF5bG9hZA==" }])
+    );
     let request = network_request_announced_before_fetch_pause(&ctx, &paused, Some("Fetch"));
     let network_request_id = request["params"]["requestId"]
         .as_str()
