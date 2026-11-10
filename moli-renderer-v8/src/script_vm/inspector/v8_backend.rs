@@ -728,20 +728,25 @@ pub(crate) fn report_uncaught_exception_to_devtools(
         return;
     };
     // Report in the realm the error was created in, as Blink does with the
-    // exception's script state. From inline scripts and event handlers V8 sent
-    // the report without the error object (gate run 3), which it does when it
-    // cannot wrap the value for the session in the context it was given.
+    // exception's script state; the current context only for a primitive.
     let context = v8::Local::<v8::Object>::try_from(exception)
         .ok()
         .and_then(|object| object.get_creation_context(scope))
         .unwrap_or_else(|| scope.get_current_context());
     let stack_trace =
         inspector.create_stack_trace(v8::Exception::get_stack_trace(scope, exception));
-    let detailed_message = if message.starts_with("Uncaught") {
-        message.to_owned()
-    } else {
-        format!("Uncaught {message}")
-    };
+    // V8 still sends exceptions thrown by page-compiled code without the
+    // error object, in any realm (gate run 3; the cause is a TODO.md item),
+    // and Moli then describes the exception from this text. So the text is
+    // what Chrome's remote object would describe: an error's stack, from
+    // which Playwright reads the name, message and frames.
+    let detailed_message = uncaught_exception_description(scope, exception).unwrap_or_else(|| {
+        if message.starts_with("Uncaught") {
+            message.to_owned()
+        } else {
+            format!("Uncaught {message}")
+        }
+    });
     inspector.exception_thrown(
         context,
         v8::inspector::StringView::from(b"Uncaught".as_slice()),
@@ -753,6 +758,31 @@ pub(crate) fn report_uncaught_exception_to_devtools(
         stack_trace,
         0,
     );
+}
+
+/// pilot: how DevTools describes a thrown value: an error's `stack` (its name,
+/// message and frames), a primitive's string. `None` for other objects, or
+/// when reading the stack throws.
+fn uncaught_exception_description(
+    scope: &mut v8::PinScope<'_, '_>,
+    exception: v8::Local<'_, v8::Value>,
+) -> Option<String> {
+    if exception.is_string()
+        || exception.is_number()
+        || exception.is_boolean()
+        || exception.is_big_int()
+    {
+        return Some(exception.to_rust_string_lossy(scope));
+    }
+    if !exception.is_native_error() {
+        return None;
+    }
+    let object = v8::Local::<v8::Object>::try_from(exception).ok()?;
+    let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
+    let scope = &mut try_catch.init();
+    let key = v8::String::new(scope, "stack")?;
+    let stack = object.get(scope, key.into())?;
+    stack.is_string().then(|| stack.to_rust_string_lossy(scope))
 }
 
 /// Opaque reference tying a renderer agent to its isolate's Inspector backend.
