@@ -210,6 +210,12 @@ impl LayoutSource for NativeLayoutSourceView<'_> {
         )
     }
 
+    fn form_control_option_sources(&self, control: Self::NodeId) -> Vec<Self::NodeId> {
+        // The same list `select_control_data` draws `option_labels` from, so
+        // listbox row indices line up with these options.
+        self.host().select_option_elements(control)
+    }
+
     fn replaced_metrics(&self, node: Self::NodeId) -> Option<ReplacedMetrics> {
         let native_node = self.host().node(node)?;
         let element = native_node.as_element()?;

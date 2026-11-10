@@ -228,7 +228,7 @@ where
     prepare_list_markers(&mut world)?;
     let list_marker_elapsed = phase_started.elapsed();
     let phase_started = Instant::now();
-    prepare_form_controls(&mut world, styles)?;
+    prepare_form_controls(&mut world, source, styles)?;
     let form_control_elapsed = phase_started.elapsed();
     let phase_started = Instant::now();
     prepare_inline_contexts(&mut world, services);

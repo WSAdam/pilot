@@ -11,12 +11,14 @@ use crate::{
     replaced::ReplacedContext,
 };
 
-pub(crate) fn prepare_form_controls<N, R>(
+pub(crate) fn prepare_form_controls<N, S, R>(
     world: &mut LayoutWorld<N>,
+    source: &S,
     styles: &mut R,
 ) -> Result<(), LayoutError>
 where
     N: Copy + Debug + Eq + Hash,
+    S: crate::LayoutSource<NodeId = N>,
     R: LayoutStyleResolver<N>,
 {
     let controls = (0..world.boxes.len())
@@ -33,11 +35,11 @@ where
         let Some(owner) = world.boxes[control.index()].source else {
             continue;
         };
-        if world.boxes[control.index()]
+        let listbox = world.boxes[control.index()]
             .element_semantics
             .as_ref()
-            .is_some_and(LayoutElementSemantics::is_select_listbox)
-        {
+            .is_some_and(LayoutElementSemantics::is_select_listbox);
+        if listbox {
             world.boxes[control.index()]
                 .style
                 .clip_form_control_contents();
@@ -61,6 +63,15 @@ where
         if texts.is_empty() && selection.is_some() {
             texts.push(Arc::from(""));
         }
+        // pilot: each listbox row stands for its <option> (geometry and hit
+        // testing). A count mismatch leaves the rows anonymous, as before.
+        let row_options = if listbox {
+            Some(source.form_control_option_sources(owner))
+                .filter(|options| options.len() == texts.len())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         // Blink keeps the placeholder and inner editor as siblings. The
         // placeholder precedes the empty editor, which retains its own
         // font metrics and selection outside the placeholder's effect layers.
@@ -91,6 +102,7 @@ where
             );
             wrapper.inline_formatting_context = true;
             wrapper.text_selection = selection;
+            wrapper.form_option_source = row_options.get(row).copied();
             let wrapper_id = world.allocate(wrapper);
             let text_id = world.allocate(LayoutWorld::new_box(
                 None,

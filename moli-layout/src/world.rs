@@ -211,6 +211,10 @@ impl LayoutCapabilityDiagnostic {
 pub struct LayoutBox<N> {
     pub(crate) source: Option<N>,
     pub(crate) owner: Option<N>,
+    /// pilot: the `<option>` an anonymous listbox row stands for. Anonymous
+    /// boxes carry no `source` (box provenance forbids it), so the output
+    /// projection reads this instead when it records geometry and hit sources.
+    pub(crate) form_option_source: Option<N>,
     pub(crate) pseudo: Option<LayoutPseudo>,
     pub(crate) source_label: String,
     pub(crate) owner_label: Option<String>,
@@ -1211,6 +1215,7 @@ where
         LayoutBox {
             source,
             owner,
+            form_option_source: None,
             pseudo,
             source_label,
             owner_label,

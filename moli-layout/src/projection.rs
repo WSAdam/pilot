@@ -420,20 +420,31 @@ where
                 ));
             }
             self.scrollable_overflow[index] = overflow.scrollable_overflow(box_id);
-            let source = layout_box.source.or_else(|| {
-                (layout_box.anonymous_reason
-                    == Some(LayoutAnonymousReason::InlineSplitContinuation))
-                .then_some(layout_box.owner)
-                .flatten()
-            });
-            self.box_sources.push(source);
-            self.hit_sources.push(layout_box.source.or_else(|| {
-                (layout_box.pseudo.is_some()
-                    || layout_box.anonymous_reason
+            // pilot: a listbox row's wrapper stands for its <option>, so the
+            // option gets the row's client rects and hit testing (Chrome).
+            let source = layout_box
+                .source
+                .or(layout_box.form_option_source)
+                .or_else(|| {
+                    (layout_box.anonymous_reason
                         == Some(LayoutAnonymousReason::InlineSplitContinuation))
-                .then_some(layout_box.owner)
-                .flatten()
-            }));
+                    .then_some(layout_box.owner)
+                    .flatten()
+                });
+            self.box_sources.push(source);
+            self.hit_sources
+                .push(
+                    layout_box
+                        .source
+                        .or(layout_box.form_option_source)
+                        .or_else(|| {
+                            (layout_box.pseudo.is_some()
+                                || layout_box.anonymous_reason
+                                    == Some(LayoutAnonymousReason::InlineSplitContinuation))
+                            .then_some(layout_box.owner)
+                            .flatten()
+                        }),
+                );
             let semantics = layout_box.element_semantics();
             self.boxes.push(LayoutBoxGeometry {
                 id,

@@ -637,6 +637,14 @@ pub trait LayoutSource {
     fn css_image_resource(&self, _resolved_url: &str) -> Option<LayoutImageResource> {
         None
     }
+
+    /// pilot: the `<option>` nodes of a select control, in the order of its
+    /// `LayoutFormControlData::option_labels`. A listbox row is tied to its
+    /// option so the option gets the row's geometry and hit testing, as in
+    /// Chrome. Sources without real options return none.
+    fn form_control_option_sources(&self, _control: Self::NodeId) -> Vec<Self::NodeId> {
+        Vec::new()
+    }
 }
 
 /// One element's primary style and the pseudo styles eagerly cascaded with it.

@@ -168,7 +168,7 @@ test('a nested iframe loads as its own frame and the snapshot stitches it in', {
 
 // 2026-11-10: the options of a <select multiple> listbox had 0x0 boxes, so the
 // snapshot gave them no refs (MCP core.spec browser_select_option (multiple)).
-test('each option of a select multiple listbox gets a box and a snapshot ref', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('each option of a select multiple listbox gets a box and a snapshot ref', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.setContent('<select multiple><option value="foo">Foo</option><option value="bar">Bar</option><option value="baz">Baz</option></select>');
     const boxes = await page.evaluate(() => [...document.querySelectorAll('option')].map((option) => option.getBoundingClientRect().height > 0));

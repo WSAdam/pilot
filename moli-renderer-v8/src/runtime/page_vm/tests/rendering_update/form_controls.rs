@@ -491,3 +491,69 @@ document.body.innerHTML = `<input id=field placeholder="Example">`;
         Ok::<_, anyhow::Error>(())
     }).await.expect("form focus paint fixture should run");
 }
+
+// 2026-11-10 (pilot): the options of a <select multiple> listbox had 0x0 boxes
+// at 0,0: listbox rows were anonymous boxes tied to no <option>, so Playwright's
+// aria snapshot gave the options no refs (Playwright MCP browser_select_option
+// (multiple)). Each listbox option now has its row's box and hit testing.
+#[tokio::test(flavor = "current_thread")]
+async fn listbox_options_have_their_row_boxes_and_hit_testing() {
+    run_page_vm_async_test(async move {
+        let loader =
+            crate::network::ResourceRequestClient::new(&FetchConfig::default()).expect("loader");
+        let mut page_vm = test_page_vm_with_loader_and_document_url(
+            &loader,
+            Vec::new(),
+            Url::parse("https://example.com/select-listbox-geometry.html")?,
+        );
+        page_vm.vm_mut().eval(
+            r#"
+document.head.innerHTML = `<style>
+html,body{margin:0;padding:0;background:white}
+select{position:absolute;top:0;width:140px;height:90px;box-sizing:border-box;
+       margin:0;padding:0;border:1px solid black;font:16px/20px sans-serif}
+#multi{left:0}#single{left:200px;height:22px}
+</style>`;
+const options = `<option value=a>Alpha</option><option value=b>Beta</option><option value=c>Gamma</option>`;
+document.body.innerHTML = `<select id=multi multiple>${options}</select><select id=single>${options}</select>`;
+'installed'
+"#,
+        )?;
+        page_vm.vm_mut().sync_live_document_style_sources();
+        let viewport = moli_layout::PaintViewport::new(400, 120, 1.0);
+        page_vm
+            .vm_mut()
+            .screenshot_layout_snapshot(viewport)?
+            .expect("select fixture must retain a layout root");
+        let rows: Vec<[f64; 4]> = serde_json::from_str(&page_vm.vm_mut().eval(
+            "JSON.stringify([...document.getElementById('multi').options].map(o => { const r = o.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }))",
+        )?)?;
+        assert_eq!(rows.len(), 3);
+        for (index, [x, y, width, height]) in rows.iter().copied().enumerate() {
+            assert!(width > 0.0 && height > 0.0, "option {index} must have a box: {rows:?}");
+            assert!((0.0..140.0).contains(&x), "option {index} sits inside the listbox: {rows:?}");
+            if index > 0 {
+                assert!(y > rows[index - 1][1], "option {index} sits below the row before it: {rows:?}");
+            }
+        }
+        assert_eq!(
+            page_vm.vm_mut().eval(&format!(
+                "document.elementFromPoint({}, {}) === document.getElementById('multi').options[1]",
+                rows[1][0] + 2.0,
+                rows[1][1] + rows[1][3] / 2.0
+            ))?,
+            "true",
+            "a point on the second row hits the second option"
+        );
+        assert_eq!(
+            page_vm.vm_mut().eval(
+                "JSON.stringify([...document.getElementById('single').options].map(o => o.getBoundingClientRect().width))",
+            )?,
+            "[0,0,0]",
+            "a dropdown's options stay box-less"
+        );
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .expect("listbox option geometry fixture should run");
+}
