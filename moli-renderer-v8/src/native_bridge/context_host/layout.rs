@@ -80,6 +80,12 @@ impl JsContextHost {
         super::layout_snapshot::LayoutSourceVersion {
             dom: self.dom_host().dom_version(),
             scroll: self.scroll_offset_version.get(),
+            // pilot: Playwright's setViewportSize changes no DOM and no
+            // scroll offset; without this a Live layout kept the old width.
+            viewport: self
+                .viewport_surface()
+                .map(|surface| (surface.inner_width, surface.inner_height))
+                .unwrap_or_default(),
         }
     }
 

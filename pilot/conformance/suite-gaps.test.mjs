@@ -178,6 +178,19 @@ test('each option of a select multiple listbox gets a box and a snapshot ref', {
     assert.match(snapshot, /option "Baz" \[ref=e\d+\]/);
   }));
 
+// 2026-11-10: under Live layout a viewport resize left the page laid out at the
+// old width (innerWidth 390, body still 1264px wide): the latest layout was
+// reused because neither the DOM nor a scroll offset had changed.
+test('the page lays out at the new width after a viewport resize', { timeout: 60_000 }, () =>
+  withPage(async (page) => {
+    await page.setContent('<p>wide</p>');
+    const read = () => page.evaluate(() => [innerWidth, document.documentElement.clientWidth, document.documentElement.getBoundingClientRect().width]);
+    // Reading geometry first builds the layout the resize must replace.
+    assert.deepEqual(await read(), [1280, 1280, 1280]);
+    await page.setViewportSize({ width: 390, height: 780 });
+    assert.deepEqual(await read(), [390, 390, 390]);
+  }));
+
 // 2026-11-10: a ResizeObserver on document.body did not fire when Playwright
 // changed the viewport, though innerWidth changed (MCP core.spec browser_resize).
 test('a ResizeObserver on the body fires when the viewport is resized', { timeout: 60_000 }, () =>

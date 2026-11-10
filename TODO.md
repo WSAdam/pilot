@@ -147,3 +147,4 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] A listbox <option> has a principal box too, so its offsetWidth, offsetTop and ResizeObserver see its row (getBoundingClientRect and hit testing already do since Build 3)
 - [ ] Find why an iframe nested in a data: URL iframe never loads (page.frames() lists 2 of 3; srcdoc nesting loads); a renderer test with expect_one_child_frame_task_source should locate it
 - [ ] beforeunload is cancelable and its dialog works: a cancelable trusted event, a beforeunload dialog through the alert/confirm machinery, a page command run before browser-started navigations and traversals, and sticky user activation (Build 3b)
+- [ ] Under Live layout a viewport resize reflows the page: after setViewportSize(390x780) documentElement.clientWidth is 390, not the old 1280 (moli-renderer-v8 layout_snapshot LayoutSourceVersion; conformance the page lays out at the new width after a viewport resize)
