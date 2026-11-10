@@ -4039,3 +4039,28 @@ fn cdp_cookie_overwrite_report_matches_the_canonical_creation_time() {
         );
     }
 }
+
+// 2026-11-10 (pilot): a cookie that named only a domain borrowed the page's URL
+// as its request URL, so a cookie for example.com set while the page was on
+// localhost failed the domain match and was dropped. Chrome builds the request
+// URL from the cookie's own domain (Playwright MCP cookies.spec).
+#[test]
+fn cookie_set_by_domain_alone_is_kept_for_a_site_the_page_never_visited() {
+    use super::normalize::{NormalizedCdpCookieParam, normalize_cookie_param};
+
+    let page_url = Url::parse("http://localhost:8907/empty.html").unwrap();
+    for domain in ["example.com", "sub.example.com", ".example.com"] {
+        let param = serde_json::from_value(json!({
+            "name": "apex", "value": "value", "domain": domain, "path": "/"
+        }))
+        .unwrap();
+        let NormalizedCdpCookieParam::Ready(cookie, _) =
+            normalize_cookie_param(param, Some(&page_url))
+        else {
+            panic!("cookie for {domain} rejected while the page is on localhost");
+        };
+        assert_eq!(cookie.domain, domain.trim_start_matches('.'));
+        assert!(!cookie.host_only);
+        assert!(!cookie.secure, "secure defaults to false, as in Chrome");
+    }
+}

@@ -89,6 +89,11 @@ pub(super) fn normalize_cookie_param(
                 None
             }
         },
+        // pilot: a cookie that names its own domain does not borrow the page's
+        // URL. Chrome builds the request URL from the cookie's domain, so a
+        // cookie for a site the page never visited is kept instead of failing
+        // the domain match against the page's host.
+        None if param.domain.is_some() => None,
         None => default_request_url.cloned(),
     };
 
