@@ -106,8 +106,8 @@ WebSockets, file uploads and downloads, flows whose requests are signed by page 
 | 7d packaging | `pilot-mcp` packaging, README, and a benchmark of 3–5 real tasks comparing first-run and replay time and LLM steps, plus the replay success rate over a week. | none |
 | 7e (only if needed) | Navigations with Chrome's exact headers (`pilot replay`), or the pilot-side recorder | light or heavy |
 
-## Questions for you
+## Decisions (2026-11-11)
 
-1. **Which tasks will you repeat?** Read-only ones (dashboards, lists, scraping) make a simpler v1. If writes matter from the start, the `allow_writes` gate and its tests come first.
-2. **Is a wrapper MCP OK?** Agents would point at `pilot-mcp` instead of `@playwright/mcp`. Every Playwright tool still works through it.
-3. **Who triggers replays?** Only the agent through MCP, or also a CLI or cron job with no agent in the loop? A CLI adds a `pilot-mcp replay <name>` command, which is small.
+1. **Writes are in v1 from day one.** The `allow_writes` gate, the write listing and their tests come first in 7b and 7c. That includes form POSTs, which are navigations, so the spike also measures whether `fetch()` replay of a form POST is accepted, or whether 7e's exact navigation headers are needed early.
+2. **A wrapper MCP is fine.** Agents point at `pilot-mcp`, which forwards every Playwright MCP tool.
+3. **Both the agent and a CLI trigger replays.** `task_replay` over MCP, plus `pilot-mcp replay <name> --input k=v [--allow-writes]` for cron and scripts.
