@@ -235,7 +235,7 @@ test('a file:// URL loads the local file', { timeout: 60_000 }, () =>
 // visible from Playwright's utility world, where page.webmcp (and so MCP) calls
 // getTools(); pilot keeps one tool list per JS world, Chrome one per document
 // (MCP webmcp.spec and webmcp-dynamic.spec, CLI webmcp-list/webmcp-call).
-test('page.webmcp lists and calls a tool the page registered', { todo: 'Build 4', timeout: 60_000 }, async () => {
+test('page.webmcp lists and calls a tool the page registered', { timeout: 60_000 }, async () => {
   const webmcpBrowser = await chromium.launch({ executablePath: pilotBin, headless: true, args: ['--enable-features=WebMCP'], env: noWindowEnv, timeout: LAUNCH_TIMEOUT_MS });
   try {
     const page = await (await webmcpBrowser.newContext()).newPage();

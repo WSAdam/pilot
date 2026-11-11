@@ -190,6 +190,8 @@ pub(super) fn tool_snapshot<'s>(
     document: &DocumentTools,
     name: &str,
     tool: &RegisteredTool,
+    // pilot: the window to name; None names the registering world's window.
+    window: Option<v8::Local<'s, v8::Object>>,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let metadata = &tool.metadata;
     let schema = if let Some(schema) = &metadata.input_schema {
@@ -203,7 +205,7 @@ pub(super) fn tool_snapshot<'s>(
         description: metadata.description.clone(),
         title: Some(metadata.title.clone()),
         origin: document.origin.ascii_serialization(),
-        window: v8::Local::new(scope, &document.window),
+        window: window.unwrap_or_else(|| v8::Local::new(scope, &document.window)),
         input_schema: schema,
         annotations: metadata.annotations,
     }

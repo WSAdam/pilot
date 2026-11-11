@@ -294,20 +294,29 @@ fn get_tools<'s>(
                     .is_some_and(|policy| policy.tools_enabled())
                 && (entry.origin == caller_origin || from_origins.contains(&entry.origin))
         })
-        .flat_map(|(_, entry)| {
+        .flat_map(|(tool_document, entry)| {
             entry
                 .tools
                 .iter()
                 .filter(|(_, tool)| {
                     entry.origin == caller_origin || tool.exposed_to.contains(&caller_origin)
                 })
-                .map(move |(name, tool)| (entry, name, tool))
+                .map(move |(name, tool)| (*tool_document, entry, name, tool))
         })
         .collect::<Vec<_>>();
-    tools.sort_by_key(|(_, name, _)| *name);
+    tools.sort_by_key(|(_, _, name, _)| *name);
+    // pilot: a tool of the caller's own document names the caller's window,
+    // the WindowProxy as this world sees it (Chrome hands each world its own
+    // wrapper). Naming the registering world's window made Playwright, which
+    // calls getTools() from its utility world and keeps only tools whose
+    // window is its own, see no tools at all.
+    let caller_window = scope.get_current_context().global(scope);
     let snapshots = tools
         .into_iter()
-        .filter_map(|(entry, name, tool)| conversion::tool_snapshot(scope, entry, name, tool))
+        .filter_map(|(tool_document, entry, name, tool)| {
+            let window = (tool_document == document).then_some(caller_window);
+            conversion::tool_snapshot(scope, entry, name, tool, window)
+        })
         .map(Into::into)
         .collect::<Vec<_>>();
     let result = v8::Array::new_with_elements(scope, &snapshots);
@@ -416,6 +425,10 @@ fn execute_tool<'s>(
         let _ = resolver.reject(scope, reason);
         return Ok(());
     }
+    // pilot: getTools() names the caller's own window for the caller's
+    // document's tools, so a reference from any world of that document
+    // matches it here too.
+    let caller_window = scope.get_current_context().global(scope);
     let target_document = {
         let host = unsafe { &*host_ptr };
         host.native_bridge()
@@ -425,7 +438,9 @@ fn execute_tool<'s>(
             .find(|(document, entry)| {
                 entry.frame_tree
                     == host.native_bridge().web_mcp.documents[&caller_document].frame_tree
-                    && v8::Local::new(scope, &entry.window).strict_equals(reference.window.into())
+                    && (v8::Local::new(scope, &entry.window).strict_equals(reference.window.into())
+                        || (**document == caller_document
+                            && caller_window.strict_equals(reference.window.into())))
                     && document_owner(host, **document) == Some(entry.owner)
                     && host
                         .document_permissions_policy_for_document_handle(**document)

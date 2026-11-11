@@ -1069,4 +1069,55 @@ async fn web_mcp_sessions_receive_only_their_enabled_events_and_own_replays() {
             .all(|message| message["method"] != "WebMCP.toolsAdded")
     );
 }
+// 2026-11-10 (pilot): getTools() named the registering (main) world's window
+// on every tool, so Playwright, which calls getTools() from its utility world
+// and keeps only tools whose window === its own window, listed no page tools
+// (Playwright MCP webmcp.spec, webmcp-dynamic.spec, CLI webmcp-*).
+#[tokio::test]
+async fn web_mcp_tools_name_the_calling_worlds_window_and_run_from_an_isolated_world() {
+    let mut ctx = page(
+        r#"
+        document.modelContext.registerTool({
+            name: 'add', description: 'Adds two numbers',
+            inputSchema: {type: 'object', properties: {a: {type: 'number'}, b: {type: 'number'}}},
+            async execute(input) { return {content: [{type: 'text', text: String(input.a + input.b)}]}; }
+        });
+    "#,
+    )
+    .await;
+    let root = frame_id(&mut ctx).await;
+    let world = command(
+        &mut ctx,
+        3,
+        "Page.createIsolatedWorld",
+        json!({"frameId": root, "worldName": "pilot-utility", "grantUniveralAccess": true}),
+    )
+    .await;
+    let context_id = world["result"]["executionContextId"].clone();
+    assert!(context_id.is_number(), "{world}");
+    let reply = command(
+        &mut ctx,
+        4,
+        "Runtime.evaluate",
+        json!({
+            "contextId": context_id,
+            "awaitPromise": true,
+            "returnByValue": true,
+            "expression": r#"(async () => {
+                const tools = await document.modelContext.getTools();
+                const own = tools.filter(tool => !('window' in tool) || tool.window === window);
+                const result = await document.modelContext.executeTool(own[0], {a: 2, b: 40});
+                return [own.map(tool => tool.name), JSON.stringify(result)];
+            })()"#,
+        }),
+    )
+    .await;
+    let value = &reply["result"]["result"]["value"];
+    assert_eq!(value[0], json!(["add"]), "{reply}");
+    assert!(
+        value[1].as_str().is_some_and(|text| text.contains("42")),
+        "{reply}"
+    );
+}
+
 mod permissions;
