@@ -12,6 +12,7 @@ import type {
   SlotLocation,
   ValueSource,
 } from "./recording.ts";
+import { headerValue, htmlTags, isRecord, jsonLeaves, parseJson } from "./values.ts";
 
 /** Request headers the browser or the cookie jar owns; they're never slots. */
 const BROWSER_OWNED_HEADERS = new Set([
@@ -241,15 +242,13 @@ function structuredExtractRule(earlier: RecordedRequest, value: string): Extract
     }
   }
   if (body !== undefined && earlier.response.mimeType.includes("html")) {
-    for (const tag of body.match(/<input\b[^>]*>/gi) ?? []) {
-      const attributes = tagAttributes(tag);
+    for (const attributes of htmlTags(body, "input")) {
       const name = attributes.get("name");
       if (attributes.get("value") === value && name !== undefined) {
         return { in: "html-input", name };
       }
     }
-    for (const tag of body.match(/<meta\b[^>]*>/gi) ?? []) {
-      const attributes = tagAttributes(tag);
+    for (const attributes of htmlTags(body, "meta")) {
       const name = attributes.get("name") ?? attributes.get("property");
       if (attributes.get("content") === value && name !== undefined) {
         return { in: "html-meta", name };
@@ -274,53 +273,7 @@ function textExtractRule(body: string | undefined, value: string): ExtractRule |
   };
 }
 
-function tagAttributes(tag: string): Map<string, string> {
-  const attributes = new Map<string, string>();
-  const pattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
-  for (const match of tag.matchAll(pattern)) {
-    const name = match[1];
-    if (name !== undefined) {
-      attributes.set(name.toLowerCase(), decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? ""));
-    }
-  }
-  return attributes;
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
-}
-
-function jsonLeaves(value: unknown, path: (string | number)[] = []): { path: (string | number)[]; value: string }[] {
-  if (typeof value === "string" || typeof value === "number") {
-    return [{ path, value: String(value) }];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => jsonLeaves(item, [...path, index]));
-  }
-  if (isRecord(value)) {
-    return Object.entries(value).flatMap(([key, item]) => jsonLeaves(item, [...path, key]));
-  }
-  return [];
-}
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function headerValue(headers: RecordedRequest["headers"], wanted: string): string | undefined {
-  return headers.find(([name]) => name.toLowerCase() === wanted)?.[1];
-}
-
-function describeLocation(location: SlotLocation): string {
+export function describeLocation(location: SlotLocation): string {
   switch (location.kind) {
     case "query":
       return `query ${location.name}`;
@@ -333,10 +286,6 @@ function describeLocation(location: SlotLocation): string {
     case "header":
       return `header ${location.name}`;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function slug(text: string): string {
