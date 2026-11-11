@@ -12,6 +12,8 @@ import type {
   Slot,
   ValueSource,
 } from "./recording.ts";
+import { resultBody } from "./result.ts";
+import type { ResultBody } from "./result.ts";
 import { baseMimeType, headerValue, htmlTags, isRecord, jsonAt, parseJson } from "./values.ts";
 import type { JsonPath } from "./values.ts";
 
@@ -41,7 +43,7 @@ export interface ReplayOptions {
 }
 
 export type ReplayOutcome =
-  | { ok: true; responses: Record<string, ReplayResponse> }
+  | { ok: true; result: ResultBody[]; responses: Record<string, ReplayResponse> }
   | { ok: false; failedStep: number; failedRequest: string; reason: string };
 
 type Resolution = { ok: true; value: string } | { ok: false; reason: string };
@@ -58,6 +60,7 @@ export async function replay(
   }
   const recordedById = new Map(recording.requests.map((recorded) => [recorded.id, recorded]));
   const responses: Record<string, ReplayResponse> = {};
+  const sentUrls: Record<string, string> = {};
   for (const planned of plan.requests) {
     const recorded = recordedById.get(planned.id);
     if (recorded === undefined) {
@@ -69,12 +72,20 @@ export async function replay(
     }
     const response = await send(built.request);
     responses[planned.id] = response;
+    sentUrls[planned.id] = built.request.url;
     const mismatch = checkResponse(recorded, response);
     if (mismatch !== undefined) {
       return failure(planned, `${recorded.method} ${built.request.url} ${mismatch}`);
     }
   }
-  return { ok: true, responses };
+  const result = plan.resultRequests.flatMap((id) => {
+    const response = responses[id];
+    const url = sentUrls[id];
+    return response === undefined || url === undefined
+      ? []
+      : [resultBody(id, url, response.mimeType, response.body ?? "")];
+  });
+  return { ok: true, result, responses };
 }
 
 function failure(planned: PlannedRequest, reason: string): ReplayOutcome {

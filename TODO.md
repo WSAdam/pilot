@@ -161,3 +161,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Record→replay analyzer lists every write (non-GET request) a replay would repeat, so task_replay can require allow_writes (pilot/mcp/src/analyze.ts)
 - [x] Record→replay engine fills each request from fresh responses (CSRF token, JSON ids in path, query and body, typed-text inputs, regenerated timestamps) and stops at the first response whose status class, content type or JSON top-level keys differ from the recording (pilot/mcp/src/replay.ts)
 - [x] Record→replay engine sends nothing for a task with writes unless allow_writes is set, for a recording that isn't replayable, or for an input the task doesn't take (pilot/mcp/src/replay.ts)
+- [x] Record→replay picks the response(s) holding the text of the agent's last snapshot as the task's result, skipping navigation and banner text, and a replay returns them fresh: JSON as its text, HTML as plain text (pilot/mcp/src/result.ts)
+- [x] Record→replay keeps documents, XHR, fetch and every write, drops images, CSS, fonts, scripts, media and analytics hosts, and never stores Cookie or Set-Cookie values (pilot/mcp/src/filter.ts)

@@ -89,6 +89,8 @@ export interface ReplayPlan {
   inputs: Record<string, string>;
   requests: PlannedRequest[];
   writes: PlannedWrite[];
+  /** The requests whose responses hold the answer the agent read, in recorded order. */
+  resultRequests: string[];
   replayable: boolean;
   notReplayableReasons: string[];
 }

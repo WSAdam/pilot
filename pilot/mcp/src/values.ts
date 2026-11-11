@@ -65,7 +65,7 @@ function tagAttributes(tag: string): Map<string, string> {
   return attributes;
 }
 
-function decodeHtmlEntities(text: string): string {
+export function decodeHtmlEntities(text: string): string {
   return text
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")

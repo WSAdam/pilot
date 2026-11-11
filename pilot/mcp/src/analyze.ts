@@ -12,6 +12,7 @@ import type {
   SlotLocation,
   ValueSource,
 } from "./recording.ts";
+import { findResultRequests } from "./result.ts";
 import { headerValue, htmlTags, isRecord, jsonLeaves, parseJson } from "./values.ts";
 
 /** Request headers the browser or the cookie jar owns; they're never slots. */
@@ -74,6 +75,7 @@ export function analyzeRecording(recording: Recording): ReplayPlan {
     inputs: usedInputs,
     requests,
     writes,
+    resultRequests: findResultRequests(recording),
     replayable: notReplayableReasons.length === 0,
     notReplayableReasons,
   };
