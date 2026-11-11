@@ -156,3 +156,6 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Record→replay design reviewed and its three questions answered (docs/record-replay.md: which tasks repeat, wrapper MCP OK, who triggers replays)
 - [x] Record→replay design reviewed and its three questions answered (docs/record-replay.md: which tasks repeat, wrapper MCP OK, who triggers replays)
 - [ ] Record→replay spike: pick the recording source (second CDP client on pilot's port, or Playwright context listeners) and prove fetch() replay in a pilot page carries cookies and a CSRF token (docs/record-replay.md step 7a)
+- [x] Record→replay analyzer traces each value in a recorded request to its source: a CSRF token from an earlier page's hidden input, an ID from an earlier JSON response, a header from an earlier response, text the agent typed, a regenerated timestamp, or a constant (pilot/mcp/src/analyze.ts)
+- [x] Record→replay analyzer flags a write whose body carries a long value found in no earlier response or input as JS-computed, and marks the recording not replayable (pilot/mcp/src/analyze.ts)
+- [x] Record→replay analyzer lists every write (non-GET request) a replay would repeat, so task_replay can require allow_writes (pilot/mcp/src/analyze.ts)

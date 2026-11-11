@@ -1,0 +1,17 @@
+{
+  "name": "pilot-mcp",
+  "private": true,
+  "type": "module",
+  "description": "An MCP server in front of Playwright MCP that records a task's requests and replays them through pilot (docs/record-replay.md)",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}
