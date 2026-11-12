@@ -185,3 +185,15 @@ jobs:
           set -euo pipefail
           npm ci
           node --test --test-concurrency=1 --test-reporter=spec
+
+      # Record→replay (docs/record-replay.md): unit tests plus record-and-replay
+      # runs against the pilot built above. Node 24 runs the TypeScript directly.
+      - name: pilot-mcp
+        working-directory: pilot/mcp
+        env:
+          PILOT_BIN: ${{ github.workspace }}/target/release/pilot
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit -p .
+          npm test
