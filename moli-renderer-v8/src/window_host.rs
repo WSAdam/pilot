@@ -66,7 +66,10 @@ const IDLE_DEADLINE_DID_TIMEOUT_SLOT: &str = "__moliIdleDeadlineDidTimeout";
 const IDLE_DEADLINE_MS_SLOT: &str = "__moliIdleDeadlineMs";
 const IDLE_DEADLINE_TIME_ORIGIN_SLOT: &str = "__moliIdleDeadlineTimeOrigin";
 const IDLE_OPPORTUNITY_DELAY_MS: u32 = 1;
-const WINDOW_REQUEST_ANIMATION_FRAME_DELAY_MS: u32 = 16;
+/// Animation frames follow a fixed 60 Hz grid from the document's time origin,
+/// as Chrome's follow vsync: a callback requested mid-frame runs at the next
+/// frame boundary, not a whole frame after the request.
+const WINDOW_ANIMATION_FRAME_INTERVAL_MS: f64 = 1000.0 / 60.0;
 pub(crate) const TOP_WINDOW_MESSAGE_ENDPOINT_SLOT: &str = "__moliTopWindowMessageEndpoint";
 
 #[derive(WebApiObject)]
@@ -780,7 +783,7 @@ pub(super) fn window_request_animation_frame_callback<'s>(
             .and_then(|value| value.number_value(scope))
             .filter(|timestamp| *timestamp > now)
             .unwrap_or_else(|| {
-                let timestamp = now + WINDOW_REQUEST_ANIMATION_FRAME_DELAY_MS as f64;
+                let timestamp = next_animation_frame_time_ms(now);
                 set_private_value(
                     scope,
                     global,
@@ -2057,6 +2060,11 @@ pub(crate) fn current_time_ms() -> f64 {
         .unwrap_or(Duration::ZERO)
         .as_secs_f64()
         * 1000.0
+}
+
+/// The first frame boundary strictly after `now`, on the 60 Hz grid.
+fn next_animation_frame_time_ms(now: f64) -> f64 {
+    ((now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor() + 1.0) * WINDOW_ANIMATION_FRAME_INTERVAL_MS
 }
 
 fn current_animation_frame_time_ms(scope: &mut v8::PinScope<'_, '_>) -> f64 {

@@ -642,6 +642,55 @@ async fn request_animation_frame_callbacks_share_one_timestamp_per_batch() {
     );
 }
 
+// 2026-11-12 (pilot): frames were timed `now + 16 ms`, so the first one always
+// came a whole frame after the request and Playwright's two-frame stability
+// wait cost about 36 ms per click. Chrome's frames follow vsync, a fixed 60 Hz
+// grid, so the first one comes at the next boundary.
+#[tokio::test]
+async fn request_animation_frame_timestamps_land_on_the_60hz_frame_grid() {
+    let mut vm = new_storage_test_vm("https://example.com/");
+    let loader = ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).expect("loader");
+    vm.eval(
+        r#"
+        globalThis.__frameGrid = { requested: performance.now(), stamps: [] };
+        const tick = timestamp => {
+            globalThis.__frameGrid.stamps.push(timestamp);
+            if (globalThis.__frameGrid.stamps.length < 3) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        "scheduled";
+        "#,
+    )
+    .expect("animation frame grid setup");
+
+    vm.advance_timers_until_deadline_for_test(&loader)
+        .await
+        .expect("animation frame grid callbacks");
+
+    assert_eq!(
+        vm.eval(
+            r#"
+            (() => {
+                const frame = 1000 / 60;
+                const { requested, stamps } = globalThis.__frameGrid;
+                const onGrid = value => Math.abs(value / frame - Math.round(value / frame)) < 1e-6;
+                return JSON.stringify({
+                    count: stamps.length,
+                    onGrid: stamps.every(onGrid),
+                    // One frame, plus the moment between performance.now() and the request.
+                    firstWithinOneFrame: stamps[0] > requested && stamps[0] - requested <= frame + 1,
+                    gapsAreWholeFrames: stamps.slice(1).every(
+                        (stamp, index) => stamp > stamps[index] && onGrid(stamp - stamps[index])
+                    ),
+                });
+            })()
+            "#,
+        )
+        .expect("animation frame grid result"),
+        r#"{"count":3,"onGrid":true,"firstWithinOneFrame":true,"gapsAreWholeFrames":true}"#
+    );
+}
+
 #[tokio::test]
 async fn request_animation_frame_reports_exceptions_to_the_callback_realm() {
     let mut vm = new_storage_test_vm("https://example.com/");
