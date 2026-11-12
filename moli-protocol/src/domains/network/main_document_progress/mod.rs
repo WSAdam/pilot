@@ -1114,6 +1114,8 @@ impl MainDocumentLiveNetworkProgressSource {
                 initial_request_cookie_report,
             ));
         }
+        let mut hop_method = final_request_method.to_owned();
+        let mut hop_body = request_body.map(str::to_owned);
         for (index, redirect) in redirect_chain.iter().enumerate() {
             let target = self.progress_target();
             let observed_response_available =
@@ -1138,11 +1140,15 @@ impl MainDocumentLiveNetworkProgressSource {
                     },
                 );
             }
+            if redirect_rewrites_method_to_get(redirect.status, &hop_method) {
+                hop_method = "GET".to_owned();
+                hop_body = None;
+            }
             events.push(MainDocumentNavigationProgressEvent::RequestWillBeSent {
                 target: target.clone(),
                 url: redirect.to_url.clone(),
-                method: final_request_method.to_owned(),
-                request_body: request_body.map(str::to_owned),
+                method: hop_method.clone(),
+                request_body: hop_body.clone(),
                 request_headers: final_request_headers.to_vec(),
                 request_initiator_type: SubresourceRequestInitiatorType::Other,
                 redirect_response: Box::new(Some(MainDocumentRedirectResponse {
@@ -1772,6 +1778,8 @@ impl CompletedMainDocumentProgressContext {
                 initial_request_cookie_report,
             ));
         }
+        let mut hop_method = events.request_method.clone();
+        let mut hop_body = self.request_body.clone();
         for (index, redirect) in events.redirect_chain.iter().enumerate() {
             let observed_response_available = navigation_exchange_group(
                 &events.network_observation_journal,
@@ -1798,11 +1806,15 @@ impl CompletedMainDocumentProgressContext {
                     },
                 );
             }
+            if redirect_rewrites_method_to_get(redirect.status, &hop_method) {
+                hop_method = "GET".to_owned();
+                hop_body = None;
+            }
             progress_events.push(MainDocumentNavigationProgressEvent::RequestWillBeSent {
                 target: target.clone(),
                 url: redirect.to_url.clone(),
-                method: events.request_method.clone(),
-                request_body: self.request_body.clone(),
+                method: hop_method.clone(),
+                request_body: hop_body.clone(),
                 request_headers: events.request_headers.clone(),
                 request_initiator_type: SubresourceRequestInitiatorType::Other,
                 redirect_response: Box::new(Some(MainDocumentRedirectResponse {
@@ -2073,6 +2085,17 @@ fn observed_request_headers(
         .and_then(|group| group.first())
         .map(|exchange| exchange.request().headers().to_vec())
         .unwrap_or_else(|| fallback.to_vec())
+}
+
+/// Whether a navigation hop after a redirect with `status` becomes a GET, as
+/// the Fetch standard's HTTP-redirect fetch decides it: 301 and 302 turn a
+/// POST into a GET, and 303 turns anything but GET or HEAD into a GET. A
+/// rewrite also drops the request body; 307 and 308 keep both. pilot: the
+/// same rule as moli-fetch's private `redirect_status_rewrites_to_get`, so
+/// each announced hop carries the method that went on the wire.
+fn redirect_rewrites_method_to_get(status: u16, method: &str) -> bool {
+    (status == 303 && !method.eq_ignore_ascii_case("GET") && !method.eq_ignore_ascii_case("HEAD"))
+        || (matches!(status, 301 | 302) && method.eq_ignore_ascii_case("POST"))
 }
 
 fn observed_response_metadata(

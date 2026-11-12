@@ -1661,3 +1661,130 @@ fn no_content_navigation_retains_response_metadata_with_live_progress() {
         );
     }
 }
+
+// 2026-11-12: pilot announced the redirect after a form POST as a POST that
+// still carried the form body (a Playwright recording saw "POST /orders/100"),
+// while the request on the wire was a GET. Each hop now takes the method the
+// Fetch standard gives it: 301 and 302 turn a POST into a GET, 303 turns
+// anything but GET or HEAD into a GET, both dropping the body; 307 and 308
+// keep the method and the body.
+fn form_post_redirect(status: u16, to_url: &Url) -> moli_core::page::NavigationRedirect {
+    moli_core::page::NavigationRedirect {
+        source: moli_fetch::RedirectSource::Network,
+        from_url: Url::parse("http://example.test/orders").unwrap(),
+        to_url: to_url.clone(),
+        status,
+        headers: vec![("location".to_owned(), to_url.as_str().as_bytes().to_vec())],
+        network_extra_info_available: false,
+        request_extra_info: None,
+        response_extra_info: None,
+        redirect_has_extra_info: false,
+        request_cookie_report: None,
+        cookie_set_reports: Vec::new(),
+        from_cache: false,
+        negotiated_http_version: None,
+    }
+}
+
+fn form_post_request_will_be_sent_messages(status: u16) -> Vec<Value> {
+    let final_url = Url::parse("http://example.test/orders/100").unwrap();
+    let mut events = completed_events();
+    events.request_method = "POST".to_owned();
+    events.redirect_chain = vec![form_post_redirect(status, &final_url)];
+    let context = CompletedMainDocumentProgressContext::new(
+        vec![Some("SID-1".to_owned())],
+        Some("REQ-1".to_owned()),
+        false,
+        Url::parse("http://example.test/orders").unwrap(),
+        "POST".to_owned(),
+        Some("item=Blue+kettle".to_owned()),
+        vec![(
+            "Content-Type".to_owned(),
+            "application/x-www-form-urlencoded".to_owned(),
+        )],
+        "LOADER-1".to_owned(),
+        "FRAME-1".to_owned(),
+        12.5,
+    );
+    let batches = context.event_batches(&events, &final_url, 17);
+    let mut drain =
+        MainDocumentProgressDrain::from_source(MainDocumentProgressSource::completed_body(batches));
+    drain.mark_output_visible_until(MainDocumentProgressOutputBoundary::BodyFinishedVisible);
+    drain_into_protocol_messages(&mut drain)
+        .into_iter()
+        .filter(|message| message["method"] == json!("Network.requestWillBeSent"))
+        .collect()
+}
+
+#[test]
+fn redirect_after_a_form_post_is_announced_as_a_get_without_the_form_body() {
+    for status in [301, 302, 303] {
+        let requests = form_post_request_will_be_sent_messages(status);
+        assert_eq!(requests.len(), 2, "{status}: the POST and its redirect hop");
+        assert_eq!(requests[0]["params"]["request"]["method"], json!("POST"));
+        assert_eq!(
+            requests[0]["params"]["request"]["postData"],
+            json!("item=Blue+kettle")
+        );
+        let hop = &requests[1]["params"];
+        assert_eq!(hop["redirectResponse"]["status"], json!(status));
+        assert_eq!(hop["request"]["method"], json!("GET"), "{status}");
+        assert_eq!(hop["request"]["postData"], Value::Null, "{status}");
+        assert_eq!(hop["request"]["hasPostData"], json!(false), "{status}");
+    }
+}
+
+#[test]
+fn redirect_307_or_308_after_a_form_post_keeps_the_post_and_its_body() {
+    for status in [307, 308] {
+        let requests = form_post_request_will_be_sent_messages(status);
+        let hop = &requests[1]["params"];
+        assert_eq!(hop["request"]["method"], json!("POST"), "{status}");
+        assert_eq!(
+            hop["request"]["postData"],
+            json!("item=Blue+kettle"),
+            "{status}"
+        );
+    }
+}
+
+#[test]
+fn live_redirect_after_a_form_post_is_announced_as_a_get() {
+    let (live_source, mut receiver) = live_progress_source();
+    let final_url = Url::parse("http://example.test/orders/100").unwrap();
+    let redirect = RedirectInfo {
+        source: moli_fetch::RedirectSource::Network,
+        from_url: Url::parse("http://example.test/orders").unwrap(),
+        to_url: final_url.clone(),
+        status: 303,
+        headers: vec![(
+            "location".to_owned(),
+            final_url.as_str().as_bytes().to_vec(),
+        )],
+        network_extra_info_available: false,
+        request_extra_info: None,
+        response_extra_info: None,
+        redirect_has_extra_info: false,
+        request_cookie_report: None,
+        cookie_set_reports: Vec::new(),
+        from_cache: false,
+        negotiated_http_version: None,
+    };
+    live_source.emit_redirect_requests(
+        "POST",
+        None,
+        &[],
+        None,
+        &[redirect],
+        &NetworkObservationJournal::default(),
+        false,
+    );
+    let mut hop_methods = Vec::new();
+    while let Ok(event) = receiver.try_recv() {
+        let message = event.into_protocol_message();
+        if message["method"] == json!("Network.requestWillBeSent") {
+            hop_methods.push(message["params"]["request"]["method"].clone());
+        }
+    }
+    assert_eq!(hop_methods, [json!("GET")]);
+}
