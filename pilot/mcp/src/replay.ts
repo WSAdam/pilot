@@ -23,6 +23,8 @@ export interface ConcreteRequest {
   url: string;
   headers: HeaderList;
   body?: string;
+  /** The origin to send it from (RecordedRequest.fetchOrigin). */
+  fetchOrigin?: string;
 }
 
 export interface ReplayResponse {
@@ -173,6 +175,9 @@ function buildRequest(
   const request: ConcreteRequest = { id: recorded.id, method: recorded.method, url: url.toString(), headers };
   if (body !== undefined) {
     request.body = body;
+  }
+  if (recorded.fetchOrigin !== undefined) {
+    request.fetchOrigin = recorded.fetchOrigin;
   }
   return { ok: true, request };
 }
