@@ -32,6 +32,12 @@ export interface RecordedRequest {
    * hop is never sent on its own; it takes the chain's final response.
    */
   redirectedFrom?: string;
+  /**
+   * The origin a replay sends this request from: a document's own origin, or
+   * the origin of the page that made an XHR or fetch, so CORS and SameSite
+   * cookies behave as they did when it was recorded.
+   */
+  fetchOrigin?: string;
 }
 
 export interface Recording {
