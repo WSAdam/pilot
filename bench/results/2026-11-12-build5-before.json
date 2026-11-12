@@ -1,0 +1,245 @@
+{
+  "label": "build5-before",
+  "date": "2026-11-12T12:43:07.367Z",
+  "commit": "c3e2a3fcc",
+  "binary": "../target/release/pilot",
+  "browserVersion": {
+    "Browser": "Chrome/156.0.8078.74",
+    "Moli-Version": "1.1.20",
+    "Protocol-Version": "1.3",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "V8-Version": "15.2.124.1-rusty",
+    "WebKit-Version": "537.36",
+    "webSocketDebuggerUrl": "ws://127.0.0.1:63005/devtools/browser/moli-browser"
+  },
+  "machine": {
+    "platform": "darwin",
+    "release": "25.2.0",
+    "arch": "arm64",
+    "cpus": 10,
+    "cpuModel": "Apple M4",
+    "totalMemGiB": 16
+  },
+  "node": "v25.4.0",
+  "playwrightCore": "1.65.0-alpha-2026-10-30",
+  "startup": {
+    "readyMs": {
+      "median": 26.8,
+      "min": 25.2,
+      "max": 72.4,
+      "samples": [
+        72.4,
+        26.4,
+        26.6,
+        25.2,
+        26.5,
+        25.9,
+        27.1,
+        27.5,
+        27.9,
+        28.8
+      ]
+    },
+    "connectMs": {
+      "median": 10.9,
+      "min": 9,
+      "max": 220.1,
+      "samples": [
+        220.1,
+        10.8,
+        13.5,
+        10.4,
+        10.3,
+        9,
+        11,
+        11.3,
+        10.3,
+        11.2
+      ]
+    },
+    "firstSnapshotFromSpawnMs": {
+      "median": 150.4,
+      "min": 139.4,
+      "max": 506.2,
+      "samples": [
+        506.2,
+        142.1,
+        151.3,
+        140.8,
+        139.4,
+        144.8,
+        151.6,
+        157.6,
+        158.8,
+        149.5
+      ]
+    },
+    "closeMs": {
+      "median": 6,
+      "min": 5.2,
+      "max": 7.7,
+      "samples": [
+        6.5,
+        5.9,
+        5.4,
+        7.7,
+        5.2,
+        5.8,
+        6.1,
+        5.3,
+        6.9,
+        6.3
+      ]
+    }
+  },
+  "warm": {
+    "gotoMs": {
+      "median": 8.2,
+      "min": 7.6,
+      "max": 67.4,
+      "samples": [
+        11.8,
+        8.2,
+        8.1,
+        8.6,
+        67.4,
+        8.2,
+        7.6,
+        8,
+        13,
+        7.7
+      ]
+    },
+    "snapshotMs": {
+      "median": 63.6,
+      "min": 57.4,
+      "max": 83.9,
+      "samples": [
+        75.9,
+        64.5,
+        63.7,
+        63.6,
+        83.9,
+        57.4,
+        63.2,
+        60.3,
+        64.1,
+        59.8
+      ]
+    },
+    "clickMs": {
+      "median": 59.2,
+      "min": 57.9,
+      "max": 174,
+      "samples": [
+        63.5,
+        60.9,
+        58.7,
+        174,
+        58.8,
+        59.6,
+        58,
+        95,
+        58.8,
+        57.9
+      ]
+    },
+    "fillMs": {
+      "median": 10.5,
+      "min": 9.5,
+      "max": 17.3,
+      "samples": [
+        17.3,
+        11,
+        11.2,
+        11.2,
+        10,
+        12.8,
+        9.8,
+        9.9,
+        9.9,
+        9.5
+      ]
+    }
+  },
+  "memory": {
+    "idleRssMiB": 48,
+    "oneContextRssMiB": 96.3,
+    "contexts": 2,
+    "allContextsRssMiB": 110.4,
+    "perExtraContextMiB": 14.1
+  },
+  "geometry": {
+    "readAfterMutationMs": {
+      "median": 2.4,
+      "min": 2.1,
+      "max": 36.9,
+      "samples": [
+        36.9,
+        3.1,
+        2.3,
+        2.6,
+        2.8,
+        2.3,
+        2.3,
+        2.4,
+        3,
+        2.1,
+        2.2,
+        2.8,
+        2.2,
+        2.2,
+        2.5,
+        2.5,
+        2.2,
+        2.1,
+        3.2,
+        2.4
+      ]
+    },
+    "cachedReadMs": {
+      "median": 0,
+      "min": 0,
+      "max": 0,
+      "samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "lateClickMs": {
+      "median": 58.4,
+      "min": 56.1,
+      "max": 76.1,
+      "samples": [
+        76.1,
+        58.8,
+        57.7,
+        59.9,
+        57.1,
+        58,
+        59.2,
+        60,
+        56.1,
+        56.2
+      ]
+    }
+  }
+}

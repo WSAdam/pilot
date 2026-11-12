@@ -14,8 +14,8 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 | 2 | light | queued | protocol-side suite gaps | | | | |
 | 3 | heavy | queued | renderer-side suite gaps, meta viewport | | | | |
 | 4 | heavy | queued | WebMCP | | | | |
-| 5 | heavy | queued | injected-script cache, Live click cost | | | | |
-| 6 | light or heavy | queued | tall screenshot tiling | | | | |
+| 5 | heavy | ready 2026-11-12 (re-scoped: frame grid; code cache and Live re-layout deferred with measurements) | animation frames on a 60 Hz grid | | | | fce80872f |
+| 6 | heavy | ready 2026-11-12 | banded full-page PNG screenshots | | | | e1e9825c5 |
 | 7 | light | queued | record→replay | | | | |
 | opt | heavy | only on request | network-fingerprint leftovers | | | | |
 
@@ -117,9 +117,23 @@ Triage dropped `browser_mouse_click_xy`, `--init-script` with `--isolated`, and 
 - Cheaper clicks under Live layout. Target: bench click median at most 47 ms.
 - The bench itself runs on the release binary and needs no build.
 
+**Ready 2026-11-12, re-scoped from measurements** (`bench/results/2026-11-12-build5-before.json`; the Mac had about 150 MB free, so medians run high):
+- **Where a click goes.** The bench click (53 ms) is 37 ms in Playwright's stability check, 10 ms in mouse press and release, and 6 ms finding the button by role.
+  - The stability check waits for two animation frames. pilot timed each frame `now + 16 ms`, so that wait was always 36.5 ms. Chrome's frames follow vsync, which averages about 25 ms.
+  - **Unit: animation frames follow a 60 Hz grid** (`fce80872f`). Expected click: about 42 ms, under the target. It's red against the 2026-11-10 binary in `pilot/conformance/frames.test.mjs`.
+- **Deferred, measured:**
+  - **The Live re-layout after a focus or hover change**, about 8 ms per click. Focus and hover bump the DOM version, so the whole layout rebuilds even when no style depends on them. Skipping that safely needs the style engine to report layout-affecting damage. The TODO line stays open.
+  - **The injected-script cache**, at most about 10 ms per new page. The script's `Runtime.evaluate` costs 9–10 ms. The rest of the first-snapshot gap (34 ms) is the page's first layout (about 20 ms) and first-run JavaScript (about 4 ms), which a code cache doesn't touch. The TODO line stays open.
+
 ### Build 6: light or heavy (triage decides)
 - Full-page screenshots taller than 65,535 px, by tiling.
 - The flaky window test needs no build: loop the conformance test only.
+
+**Ready 2026-11-12, heavy** (`moli-paint` and `moli-image` sit below the renderer). Unit `e1e9825c5`:
+- Full-page PNGs that don't fit one raster surface are drawn in bands of up to 8,192 rows, streamed into a row encoder.
+- The red tests found two more limits besides 65,535 px. At 1280 px wide, the PNG encoder's 128 MB RGBA budget failed pages from about 26,000 px tall, and the raster's 256 MB budget failed them from about 52,000 px.
+- Red in `pilot/conformance/screenshot-tall.test.mjs`: three cases, at 400 × 70,040, 1280 × 30,040 and 1280 × 55,040.
+- The flaky-window loop opens real windows, so it waits until you're away from the Mac.
 
 ### Build 7: light expected, record→replay fast path
 - The first run of a task drives pilot and records the requests each action fires. Later runs replay them through pilot's network stack, and fall back to the browser when a replay fails.
