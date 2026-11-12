@@ -71,7 +71,15 @@ test("a form POST carries the CSRF token from the fresh page, not the recorded o
       mimeType: "text/html",
       body: '<form><input type="hidden" name="authenticity_token" value="NEWtoken9999999999999999"></form>',
     }),
-    "POST /orders": () => ({ status: 200, headers: [], mimeType: "text/html; charset=utf-8", body: "<p>Order 78</p>" }),
+    // fetch() followed the recorded 302 to the new order (redirected: true since 2026-11-12).
+    "POST /orders": () => ({
+      status: 200,
+      headers: [],
+      mimeType: "text/html; charset=utf-8",
+      body: "<p>Order 78</p>",
+      redirected: true,
+      finalUrl: "https://shop.test/orders/78",
+    }),
   });
   const outcome = await replay(formRecording, analyzeRecording(formRecording), fake.send, { inputs: {}, allowWrites: true });
   assert.equal(outcome.ok, true, JSON.stringify(outcome));
@@ -235,4 +243,70 @@ test("an input the task doesn't take is refused, so a typo can't silently replay
   assert.equal(outcome.ok, false);
   assert.equal(fake.sent.length, 0);
   assert.match(outcome.ok ? "" : outcome.reason, /monht.*month/);
+});
+
+// 2026-11-12, from the 7a spike: pilot follows a form POST's 302 itself, and
+// fetch() does too, so the redirect hop is never sent on its own. pilot also
+// reports the hop with the POST's method (a CDP bug, TODO.md), which must not
+// turn it into a write.
+const redirectRecording = recording([
+  request({
+    id: "r1",
+    step: 1,
+    method: "POST",
+    url: "https://shop.test/orders",
+    headers: [["content-type", "application/x-www-form-urlencoded"]],
+    body: "item=Blue+kettle",
+    response: { status: 302, headers: [["location", "/orders/100"]], mimeType: "" },
+  }),
+  request({
+    id: "r2",
+    step: 1,
+    method: "POST",
+    url: "https://shop.test/orders/100",
+    redirectedFrom: "r1",
+    response: { status: 200, headers: [], mimeType: "text/html", body: "<h1>Order 100</h1><p>Blue kettle</p>" },
+  }),
+], { finalSnapshot: '- heading "Order 100" [level=1]\n- paragraph: Blue kettle' });
+
+test("a redirect hop is neither sent nor listed as a write", () => {
+  const plan = analyzeRecording(redirectRecording);
+  assert.deepEqual(plan.writes.map((write) => write.id), ["r1"]);
+  const hop = plan.requests.find((entry) => entry.id === "r2");
+  assert.equal(hop?.redirectedFrom, "r1");
+  assert.deepEqual(hop?.slots, []);
+});
+
+test("a followed redirect answers its hop, so the fresh order page is the result", async () => {
+  const fake = site({
+    "POST /orders": () => ({
+      status: 200,
+      headers: [],
+      mimeType: "text/html",
+      body: "<h1>Order 101</h1><p>Blue kettle</p>",
+      redirected: true,
+      finalUrl: "https://shop.test/orders/101",
+    }),
+  });
+  const outcome = await replay(redirectRecording, analyzeRecording(redirectRecording), fake.send, {
+    inputs: {},
+    allowWrites: true,
+  });
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  assert.equal(fake.sent.length, 1);
+  assert.deepEqual(outcome.ok ? outcome.result : [], [
+    { id: "r2", url: "https://shop.test/orders/101", contentType: "text/html", text: "Order 101 Blue kettle" },
+  ]);
+});
+
+test("a POST recorded as a redirect fails when the fresh one answers without redirecting", async () => {
+  const fake = site({
+    "POST /orders": () => ({ status: 200, headers: [], mimeType: "text/html", body: "<p>Bad token</p>", redirected: false }),
+  });
+  const outcome = await replay(redirectRecording, analyzeRecording(redirectRecording), fake.send, {
+    inputs: {},
+    allowWrites: true,
+  });
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.ok ? "" : outcome.reason, /didn't redirect; the recording had 302/);
 });

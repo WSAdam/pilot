@@ -27,6 +27,11 @@ export interface RecordedRequest {
   body?: string;
   resourceType: "document" | "xhr" | "fetch" | "other";
   response: RecordedResponse;
+  /**
+   * The request this one is a redirect hop of. fetch() follows redirects, so a
+   * hop is never sent on its own; it takes the chain's final response.
+   */
+  redirectedFrom?: string;
 }
 
 export interface Recording {
@@ -74,6 +79,8 @@ export interface PlannedRequest {
   method: string;
   url: string;
   slots: Slot[];
+  /** Set for a redirect hop: it has no slots and is answered by its chain. */
+  redirectedFrom?: string;
 }
 
 export interface PlannedWrite {

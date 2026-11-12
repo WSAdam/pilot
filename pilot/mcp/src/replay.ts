@@ -30,6 +30,10 @@ export interface ReplayResponse {
   headers: HeaderList;
   mimeType: string;
   body?: string;
+  /** True when fetch() followed one or more redirects to get here. */
+  redirected?: boolean;
+  /** The URL the response came from after redirects. */
+  finalUrl?: string;
 }
 
 /** Sends one request through pilot; the engine never talks to the network itself. */
@@ -66,13 +70,28 @@ export async function replay(
     if (recorded === undefined) {
       return failure(planned, `the plan names ${planned.id}, which the recording doesn't have`);
     }
+    if (planned.redirectedFrom !== undefined) {
+      // fetch() already followed this hop: it shares the chain's final response.
+      const followed = responses[planned.redirectedFrom];
+      const fromUrl = sentUrls[planned.redirectedFrom];
+      if (followed === undefined || fromUrl === undefined) {
+        return failure(planned, `its redirect source ${planned.redirectedFrom} wasn't replayed`);
+      }
+      responses[planned.id] = followed;
+      sentUrls[planned.id] = followed.finalUrl ?? fromUrl;
+      const mismatch = checkResponse(recorded, followed);
+      if (mismatch !== undefined) {
+        return failure(planned, `${recorded.url} (followed from ${fromUrl}) ${mismatch}`);
+      }
+      continue;
+    }
     const built = buildRequest(recorded, planned, plan, responses, options);
     if (!built.ok) {
       return failure(planned, built.reason);
     }
     const response = await send(built.request);
     responses[planned.id] = response;
-    sentUrls[planned.id] = built.request.url;
+    sentUrls[planned.id] = response.finalUrl ?? built.request.url;
     const mismatch = checkResponse(recorded, response);
     if (mismatch !== undefined) {
       return failure(planned, `${recorded.method} ${built.request.url} ${mismatch}`);
@@ -274,9 +293,14 @@ function replaceJsonLeaf(body: string, path: JsonPath, value: string): string {
 function checkResponse(recorded: RecordedRequest, response: ReplayResponse): string | undefined {
   const recordedClass = Math.floor(recorded.response.status / 100);
   const freshClass = Math.floor(response.status / 100);
-  // fetch() follows redirects, so a recorded 3xx may come back as the 2xx it led to.
-  const redirectFollowed = recordedClass === 3 && freshClass === 2;
-  if (freshClass !== recordedClass && !redirectFollowed) {
+  // fetch() follows redirects, so a recorded 3xx comes back as the 2xx it led
+  // to; it must really have redirected, or an error page could pass for it.
+  if (recordedClass === 3 && freshClass === 2) {
+    return response.redirected === true
+      ? undefined
+      : `returned ${response.status} but didn't redirect; the recording had ${recorded.response.status}`;
+  }
+  if (freshClass !== recordedClass) {
     return `returned ${response.status}; the recording had ${recorded.response.status}`;
   }
   if (recordedClass === 3) {

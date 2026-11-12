@@ -52,6 +52,10 @@ export function analyzeRecording(recording: Recording): ReplayPlan {
   const usedInputs: Record<string, string> = {};
   const notReplayableReasons: string[] = [];
   const requests: PlannedRequest[] = recording.requests.map((request, index) => {
+    if (request.redirectedFrom !== undefined) {
+      const { id, step, method, url, redirectedFrom } = request;
+      return { id, step, method, url, slots: [], redirectedFrom };
+    }
     const earlier = recording.requests.slice(0, index).reverse();
     const slots: Slot[] = slotValues(request).map(({ location, value }) => {
       const source = sourceFor(value, request, earlier, inputs);
@@ -68,7 +72,8 @@ export function analyzeRecording(recording: Recording): ReplayPlan {
     return { id: request.id, step: request.step, method: request.method, url: request.url, slots };
   });
   const writes: PlannedWrite[] = recording.requests
-    .filter((request) => isWrite(request))
+    // A hop is followed, never sent, whatever method pilot reported for it.
+    .filter((request) => isWrite(request) && request.redirectedFrom === undefined)
     .map(({ id, step, method, url }) => ({ id, step, method, url }));
   return {
     name: recording.name,
