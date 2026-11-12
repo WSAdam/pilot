@@ -111,3 +111,26 @@ WebSockets, file uploads and downloads, flows whose requests are signed by page 
 1. **Writes are in v1 from day one.** The `allow_writes` gate, the write listing and their tests come first in 7b and 7c. That includes form POSTs, which are navigations, so the spike also measures whether `fetch()` replay of a form POST is accepted, or whether 7e's exact navigation headers are needed early.
 2. **A wrapper MCP is fine.** Agents point at `pilot-mcp`, which forwards every Playwright MCP tool.
 3. **Both the agent and a CLI trigger replays.** `task_replay` over MCP, plus `pilot-mcp replay <name> --input k=v [--allow-writes]` for cron and scripts.
+
+## Spike results (7a, 2026-11-12)
+
+The spike ran against the release pilot binary and a local test site. The site had a login cookie, an order form with a CSRF token, a 302 to the new order's page, and a JSON API.
+
+- **Recording source: neither option 1 nor option 2.** `createConnection(config, contextGetter)` from `@playwright/mcp` takes the `BrowserContext` to drive. pilot-mcp launches pilot with `playwright-core`, owns the context, listens to `request` and `requestfinished` on it itself, and hands the same context to Playwright MCP.
+  - There's no second CDP client and no run-code tool.
+  - The config must not set `browser.isolated`, or Playwright MCP tries to make its own context.
+- **Bodies are read when each request finishes, not at `task_finish`.** pilot answers `Network.getResponseBody` with "No resource with given identifier found" for a document once the next one has loaded.
+- **Redirects:**
+  - A form POST's 302 is followed by the browser, and by `fetch()` at replay. Its hop is recorded with `redirectedFrom`, never sent on its own and never counted as a write, and it takes the chain's final response.
+  - A recorded 3xx must come back redirected (`response.redirected`), or an error page answering the POST with 200 would pass.
+- **A pilot bug turned up:** the hop after a form POST was announced as a POST with the form body. The wire request was a GET. It's fixed on `fix/redirect-method`, a light build, with a conformance test that's red against today's binary.
+- **Replay through `fetch()` in a pilot page on the site's origin works.**
+  - The cookie jar carried the session.
+  - The CSRF token came from the fresh form.
+  - New inputs (Green mug × 5 instead of Blue kettle × 3) created a new order.
+  - The order page came back as the result.
+  - Timing: **19 ms for the replay, against 809 ms for the six-step browser run**, not counting the LLM time the browser run would also take.
+- **The expected difference showed up:** replayed requests carry `Sec-Fetch-Mode: cors` and `Sec-Fetch-Dest: empty`, where the browser sent `navigate` and `document`. This test site didn't check. A site that does is the case for 7e.
+- **Playwright MCP 0.0.84 details:**
+  - Element tools take `target`, not `ref`.
+  - Snapshots are written to files under `outputDir` and linked from the tool result, even with `snapshot.mode: 'full'`.
