@@ -15,8 +15,8 @@ mod svg;
 pub use budget::{MAX_DECODED_RGBA_BYTES, MAX_ENCODED_IMAGE_BYTES};
 pub use jpeg::{EncodedJpeg, JpegDecodeError, JpegEncodeError, decode_jpeg, encode_jpeg};
 pub use png::{
-    EncodedPng, PngDecodeError, PngEncodeError, PngEncodeOptions, decode_png, encode_png,
-    encode_png_rgba8, encode_png_rgba8_with_options, encode_png_with_options,
+    EncodedPng, PngDecodeError, PngEncodeError, PngEncodeOptions, PngRowEncoder, decode_png,
+    encode_png, encode_png_rgba8, encode_png_rgba8_with_options, encode_png_with_options,
 };
 pub use raster::{
     DecodedRasterImage, RasterDecodeError, RasterImageFormat, RasterImageMetadata,

@@ -359,6 +359,44 @@ impl PageVm {
             );
         }
 
+        // pilot: a PNG too big for one raster surface or for the RGBA budget (a
+        // long page's full-page screenshot) is drawn in bands that stream into
+        // the encoder. JPEG stays one surface: the format stops at 65,535 px.
+        if matches!(format, RendererScreenshotFormat::Png) && !png_fits_one_surface(&snapshot) {
+            let started = profile_enabled.then(Instant::now);
+            let (width, height) = moli_paint::raster_device_size(&snapshot)?;
+            let mut encoder = moli_image::PngRowEncoder::new(
+                width,
+                height,
+                moli_image::PngEncodeOptions { optimize_for_speed },
+            )?;
+            moli_paint::raster_snapshot_in_bands::<anyhow::Error>(&snapshot, |band| {
+                encoder.write_rows(&band.image.rgba)?;
+                Ok(())
+            })?;
+            let encoded = encoder.finish()?;
+            if let Some(started) = started {
+                tracing::info!(
+                    target: "moli_cpu_profile",
+                    stage = "image_capture_banded",
+                    reason = ?reason,
+                    width = encoded.width,
+                    height = encoded.height,
+                    encoded_bytes = encoded.bytes.len(),
+                    layout_us,
+                    raster_and_encode_us = started.elapsed().as_micros(),
+                );
+            }
+            return Ok(RendererImageCaptureOutcome::Captured(
+                RendererCapturedScreenshot {
+                    mime_type: "image/png".to_owned(),
+                    width: encoded.width,
+                    height: encoded.height,
+                    bytes: encoded.bytes.into(),
+                },
+            ));
+        }
+
         let raster_started = profile_enabled.then(Instant::now);
         let mut raster = moli_paint::raster_snapshot(&snapshot)?;
         let raster_us = raster_started
@@ -550,4 +588,13 @@ fn paint_viewport_region(
         transform,
         scroll_scale,
     })
+}
+
+/// pilot: whether a PNG screenshot can be drawn in one raster surface and
+/// encoded from one RGBA buffer, the path every viewport screenshot takes.
+fn png_fits_one_surface(snapshot: &moli_layout::PaintSnapshot) -> bool {
+    moli_paint::raster_fits_one_surface(snapshot)
+        && moli_paint::raster_device_size(snapshot).is_ok_and(|(width, height)| {
+            u64::from(width) * u64::from(height) * 4 <= moli_image::MAX_DECODED_RGBA_BYTES as u64
+        })
 }

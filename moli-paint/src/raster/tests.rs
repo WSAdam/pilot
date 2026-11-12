@@ -906,3 +906,109 @@ fn html_text_shadow_uses_fill_ink_in_both_paint_orders() {
         }
     }
 }
+
+// 2026-11-12 (pilot): a full-page screenshot of a page taller than 65,535
+// device pixels, or over the 256 MB byte budget, failed outright. Banded
+// rasters draw it a band at a time.
+fn fill_rect(snapshot: &mut PaintSnapshot, rect: PaintRect, color: PaintColor) {
+    snapshot.push_fragment(PaintFragment::Fill {
+        fill_rule: moli_layout::PaintFillRule::NonZero,
+        shape: PaintShape::Rect(rect),
+        brush: PaintBrush::Solid(color),
+        transform: PaintTransform2D::IDENTITY,
+    });
+}
+
+fn stacked_bands(snapshot: &PaintSnapshot) -> (RasterImage, Vec<(u32, u32)>) {
+    let mut rgba = Vec::new();
+    let mut bands = Vec::new();
+    let (width, height) = raster_snapshot_in_bands::<PaintError>(snapshot, |band| {
+        assert_eq!(
+            band.top as usize * band.image.width as usize * 4,
+            rgba.len()
+        );
+        bands.push((band.top, band.image.height));
+        rgba.extend_from_slice(&band.image.rgba);
+        Ok(())
+    })
+    .expect("banded raster");
+    (
+        RasterImage {
+            width,
+            height,
+            rgba,
+        },
+        bands,
+    )
+}
+
+#[test]
+fn banded_raster_rows_match_a_one_surface_raster_across_band_edges() {
+    let mut snapshot = snapshot(6, 20_000, 1.0);
+    let blue = PaintColor::new(0.0, 0.0, 1.0, 1.0);
+    let red = PaintColor::new(1.0, 0.0, 0.0, 1.0);
+    // Edges on, beside and half a pixel off the first band edge (8,192).
+    fill_rect(
+        &mut snapshot,
+        PaintRect::new(0.0, 8_000.0, 3.0, 400.0),
+        blue,
+    );
+    fill_rect(&mut snapshot, PaintRect::new(3.0, 8_191.5, 3.0, 1.0), red);
+    fill_rect(
+        &mut snapshot,
+        PaintRect::new(1.0, 16_384.0, 4.0, 3_000.0),
+        red,
+    );
+
+    let whole = raster_snapshot(&snapshot).expect("fits one surface");
+    let (stacked, bands) = stacked_bands(&snapshot);
+    assert_eq!(bands, vec![(0, 8_192), (8_192, 8_192), (16_384, 3_616)]);
+    assert_eq!((stacked.width, stacked.height), (6, 20_000));
+    assert!(
+        stacked.rgba == whole.rgba,
+        "banded rows differ from the one-surface raster"
+    );
+    assert_eq!(pixel(&stacked, 1, 8_191), [0, 0, 255, 255]);
+    assert_eq!(pixel(&stacked, 1, 8_192), [0, 0, 255, 255]);
+}
+
+#[test]
+fn a_raster_taller_than_one_surface_draws_in_bands_to_its_last_row() {
+    let mut snapshot = snapshot(2, 70_000, 1.0);
+    fill_rect(
+        &mut snapshot,
+        PaintRect::new(0.0, 69_980.0, 2.0, 20.0),
+        PaintColor::new(0.0, 0.0, 1.0, 1.0),
+    );
+
+    assert!(!raster_fits_one_surface(&snapshot));
+    assert!(matches!(
+        raster_snapshot(&snapshot),
+        Err(PaintError::BackendDimensionLimit { .. })
+    ));
+    let (image, bands) = stacked_bands(&snapshot);
+    assert_eq!((image.width, image.height), (2, 70_000));
+    assert!(bands.iter().all(|(_, rows)| *rows <= MAX_RASTER_BAND_ROWS));
+    assert_eq!(bands.iter().map(|(_, rows)| rows).sum::<u32>(), 70_000);
+    assert_eq!(pixel(&image, 1, 100), [255, 255, 255, 255]);
+    assert_eq!(pixel(&image, 1, 65_600), [255, 255, 255, 255]);
+    assert_eq!(pixel(&image, 1, 69_990), [0, 0, 255, 255]);
+    assert_eq!(pixel(&image, 1, 69_999), [0, 0, 255, 255]);
+}
+
+#[test]
+fn banded_rasters_have_their_own_height_limit_and_one_surface_keeps_its_limits() {
+    assert!(matches!(
+        raster_snapshot_in_bands::<PaintError>(
+            &snapshot(1, MAX_BANDED_RASTER_HEIGHT + 1, 1.0),
+            |_| Ok(())
+        ),
+        Err(PaintError::BackendDimensionLimit {
+            max_dimension: MAX_BANDED_RASTER_HEIGHT,
+            ..
+        })
+    ));
+    assert!(raster_fits_one_surface(&snapshot(6, 20_000, 1.0)));
+    // 4,096 x 20,000 x 4 bytes is 328 MB, over the 256 MB budget for one surface.
+    assert!(!raster_fits_one_surface(&snapshot(4_096, 20_000, 1.0)));
+}
