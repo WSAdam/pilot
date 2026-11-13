@@ -41,7 +41,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 ## M4: MCP protocol gaps and Playwright suite pass rates
 - [ ] Emulation.setDeviceMetricsOverride with mobile:true works for MCP --device (#1291)
 - [ ] JavaScript dialog events reach every attached CDP session, not only the opener (#2063)
-- [ ] Full-page screenshots taller than 65,535 px succeed via tiling
+- [x] Full-page screenshots taller than 65,535 px succeed via tiling
 - [ ] Runtime.executionContextCreated auxData carries type default/isolated
 - [ ] Fetch interception edge cases needed for MCP --allowed-origins pass (#280)
 - [x] Playwright tests/mcp pass rate against pilot recorded in compat/
@@ -105,7 +105,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Navigation requests match Chrome's header order and Accept-Encoding (gzip, deflate, br, zstd), with Connection: keep-alive on HTTP/1.1; today libcurl's order and "deflate, gzip, br" show (a lead for the bot-walled sites; TLS and HTTP/2 fingerprints are the bigger signal)
 - [x] Playwright's own tests/mcp suite runs against pilot (PLAYWRIGHT_MCP_EXECUTABLE_PATH) with its pass rate in compat/; needs permission to fetch microsoft/playwright at 018adb570 and run its npm ci
 - [x] Playwright's own tests/mcp suite ran against pilot (compat/playwright-mcp-suite.json): 553 passed, 124 failed, 153 skipped; 76 failures are harness causes (test-mcp server, browser-type lookup, bundled Chromium), 48 are candidates for pilot gaps
-- [ ] The 48 candidate failures in compat/playwright-mcp-suite.json are triaged: each is a pilot gap (fixed with a conformance test) or a legitimate Chrome-only difference (noted)
+- [x] The 48 candidate failures in compat/playwright-mcp-suite.json are triaged: each is a pilot gap (fixed with a conformance test) or a legitimate Chrome-only difference (noted)
 - [x] A server that ends a close-delimited response (no Content-Length) by closing TCP without a TLS close_notify fails the navigation with curl error 56 (Craigslist's 302); Chrome treats the response as complete
 - [x] pilot's TLS ClientHello is Chrome's (JA4 t13d1516h2_8daaf6152771_d8a2da3f94cd, GREASE, shuffled extensions, brotli certificate compression, ALPS, ECH GREASE); libcurl's own hello read as a script
 - [x] pilot's HTTP/2 connection preface matches Chrome's (SETTINGS 1:65536;2:0;4:6291456;6:262144, WINDOW_UPDATE 15663105, pseudo-headers m,a,s,p), which needs a vendored libcurl
@@ -120,42 +120,42 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] eBay still answers 403 with Chrome's header order too (2026-11-04): Akamai refuses the first request from a fresh profile before any script runs (compat/bot-walls.md)
 - [x] pilot's browser identity names the host's OS: on a Mac the User-Agent, Sec-CH-UA-Platform and navigator.platform say macOS, matching the TCP/IP fingerprint, instead of Moli's default Windows
 - [x] Runtime.consoleAPICalled carries a timestamp in milliseconds since the epoch, as Chrome does; pilot sends 0, so Playwright MCP's console log reads [-1793731413422ms] and drops the warning line (console.spec)
-- [ ] Runtime.exceptionThrown carries its timestamp in milliseconds since the epoch; pilot sends seconds
+- [x] Runtime.exceptionThrown carries its timestamp in milliseconds since the epoch; pilot sends seconds
 - [x] An uncaught error thrown by an inline script while the page loads reaches Playwright as a pageerror and Runtime.exceptionThrown (Playwright MCP console.spec "page error")
 - [x] An uncaught error thrown by an event handler (onclick, addEventListener) reaches Playwright as a pageerror and Runtime.exceptionThrown
 - [x] A page error's message is the error's own message (timer blank), not Moli's dispatch text (timer callback dispatch failed: callback `Window Web IDL callback` threw: <unknown>: Uncaught Error: timer blank)
-- [ ] Record→replay fast path: the first run of a task drives pilot and records the requests each action fires; later runs replay them through pilot's network stack (cookies, Chrome TLS/HTTP/2), falling back to the browser when a replay fails (planned after the MCP gaps, 2026-11-04)
+- [x] Record→replay fast path: the first run of a task drives pilot and records the requests each action fires; later runs replay them through pilot's network stack (cookies, Chrome TLS/HTTP/2), falling back to the browser when a replay fails (planned after the MCP gaps, 2026-11-04)
 - [x] pilot builds run on GitHub (.github/workflows/pilot-gate.yml): the Linux and macOS jobs pass on gate/build1 and the macOS binary downloads into target/release (needs live run)
 - [x] A timer error still reaches Log.entryAdded and Console.messageAdded after the console fix, without a second Runtime.exceptionThrown (upstream moli-protocol log and console tests; broke in gate run 2)
 - [ ] A <script> inserted from page.evaluate that throws reports its error as uncaught (a pageerror) and the insert returns normally, as in Chrome; pilot makes page.evaluate throw the script's error
 - [ ] Find why V8 sends Runtime.exceptionThrown without the error object for exceptions thrown by page-compiled code (inline scripts, page timers, attribute and addEventListener handlers) but with it for page.evaluate code, even in the same realm (gate run 3)
 - [x] compat/playwright-mcp-suite.json re-measured with pilot set through PLAYWRIGHT_MCP_EXECUTABLE_PATH: the 2026-11-03 run let about 256 CLI tests drive installed Chrome and carried each test's flags into the next (shared mcpArgs array)
-- [ ] A cookie set by domain alone for a site the page never visited is kept: Storage.setCookies builds the URL from the cookie's domain like Chrome, not from the page URL (moli-protocol storage/normalize.rs; MCP browser_cookie_list by domain, browser_cookie_delete)
-- [ ] A request body reaches Playwright as request.postData(): Network.requestWillBeSent carries postDataEntries, not only postData (moli-protocol network events; MCP browser_network_request details and parts)
-- [ ] Page.captureScreenshot returns a WebP image for format "webp" (moli-protocol page/capture.rs; MCP browser_take_screenshot type webp, CLI screenshot x.webp)
-- [ ] hidePopover() on a closed popover and showPopover() on an open one return quietly like Chrome instead of throwing InvalidStateError (moli-renderer-v8 popover.rs; upstream test show_and_hide_popover_throw_on_redundant_state_changes pins the old spec and changes with it)
-- [ ] Playwright's recorder (MCP browser_start_recording / browser_stop_recording, CLI recording-start-stop) records clicks and typing as code; its overlay install died on the hidePopover() throw
+- [x] A cookie set by domain alone for a site the page never visited is kept: Storage.setCookies builds the URL from the cookie's domain like Chrome, not from the page URL (moli-protocol storage/normalize.rs; MCP browser_cookie_list by domain, browser_cookie_delete)
+- [x] A request body reaches Playwright as request.postData(): Network.requestWillBeSent carries postDataEntries, not only postData (moli-protocol network events; MCP browser_network_request details and parts)
+- [x] Page.captureScreenshot returns a WebP image for format "webp" (moli-protocol page/capture.rs; MCP browser_take_screenshot type webp, CLI screenshot x.webp)
+- [x] hidePopover() on a closed popover and showPopover() on an open one return quietly like Chrome instead of throwing InvalidStateError (moli-renderer-v8 popover.rs; upstream test show_and_hide_popover_throw_on_redundant_state_changes pins the old spec and changes with it)
+- [x] Playwright's recorder (MCP browser_start_recording / browser_stop_recording, CLI recording-start-stop) records clicks and typing as code; its overlay install died on the hidePopover() throw
 - [ ] An iframe nested inside a data: URL iframe loads as its own frame, and page.ariaSnapshot of the page no longer fails with "Maximum call stack size exceeded" (MCP stitched aria frames, CLI click in iframe)
-- [ ] Each option of a <select multiple> listbox gets a layout box, so the snapshot gives it a ref (MCP browser_select_option (multiple))
+- [x] Each option of a <select multiple> listbox gets a layout box, so the snapshot gives it a ref (MCP browser_select_option (multiple))
 - [ ] A ResizeObserver on document.body fires when Playwright changes the viewport size (MCP browser_resize)
 - [ ] beforeunload runs for navigations Playwright starts (goto, goBack, goForward) and a page that cancels it opens a beforeunload dialog (MCP dialog during navigate back, CLI go-back/go-forward with dialog)
-- [ ] A file:// URL loads the local file like Chrome; pilot refuses every file:// navigation and has no local-file loader (MCP browser_navigate with allowUnrestrictedFileAccess)
-- [ ] A tool the page registers through document.modelContext is visible from Playwright's utility world, so page.webmcp and MCP list and call it; pilot keeps one tool list per JS world, Chrome one per document (MCP webmcp.spec, webmcp-dynamic.spec, CLI webmcp-*)
-- [ ] A browser launched with a proxy sends its requests through it: pilot maps --proxy-server and --proxy-bypass-list to moli's --http-proxy and --http-no-proxy instead of dropping them (pilot/src/argv.rs; MCP launch.spec --proxy-server)
-- [ ] A pipe launch that also names --remote-debugging-port serves CDP on that port and prints "DevTools listening on", as Chrome does, so Playwright's launch doesn't hang (pilot/src/argv.rs; MCP http.spec relaunches a crashed shared browser)
+- [x] A file:// URL loads the local file like Chrome; pilot refuses every file:// navigation and has no local-file loader (MCP browser_navigate with allowUnrestrictedFileAccess)
+- [x] A tool the page registers through document.modelContext is visible from Playwright's utility world, so page.webmcp and MCP list and call it; pilot keeps one tool list per JS world, Chrome one per document (MCP webmcp.spec, webmcp-dynamic.spec, CLI webmcp-*)
+- [x] A browser launched with a proxy sends its requests through it: pilot maps --proxy-server and --proxy-bypass-list to moli's --http-proxy and --http-no-proxy instead of dropping them (pilot/src/argv.rs; MCP launch.spec --proxy-server)
+- [x] A pipe launch that also names --remote-debugging-port serves CDP on that port and prints "DevTools listening on", as Chrome does, so Playwright's launch doesn't hang (pilot/src/argv.rs; MCP http.spec relaunches a crashed shared browser)
 - [ ] Subresources of a file:// page (its relative CSS, images and scripts) load, as in Chrome; pilot loads the file:// document itself but its subresources fail at the network transport check
 - [ ] A listbox <option> has a principal box too, so its offsetWidth, offsetTop and ResizeObserver see its row (getBoundingClientRect and hit testing already do since Build 3)
 - [ ] Find why an iframe nested in a data: URL iframe never loads (page.frames() lists 2 of 3; srcdoc nesting loads); a renderer test with expect_one_child_frame_task_source should locate it
 - [ ] beforeunload is cancelable and its dialog works: a cancelable trusted event, a beforeunload dialog through the alert/confirm machinery, a page command run before browser-started navigations and traversals, and sticky user activation (Build 3b)
-- [ ] Under Live layout a viewport resize reflows the page: after setViewportSize(390x780) documentElement.clientWidth is 390, not the old 1280 (moli-renderer-v8 layout_snapshot LayoutSourceVersion; conformance the page lays out at the new width after a viewport resize)
+- [x] Under Live layout a viewport resize reflows the page: after setViewportSize(390x780) documentElement.clientWidth is 390, not the old 1280 (moli-renderer-v8 layout_snapshot LayoutSourceVersion; conformance the page lays out at the new width after a viewport resize)
 - [ ] A frame's Page.frameNavigated (its new document) is sent before Page.frameAttached of its own child frames, as in Chrome, so Playwright keeps grandchild frames: page.frames() lists all 3 for a nested iframe (corrects the "never loads" line: the grandchild loads, but pilot announces its parent's commit after it and Playwright drops it)
-- [ ] A WebMCP tool in another window keeps naming that window: a script calling windowB.document.modelContext.getTools() gets tool.window === windowB, not its own window (web_mcp/api.rs; WPT webmcp/imperative/executeTool-across-trees, red in gate run 43434788241)
-- [ ] The redirect after a form POST is reported to Playwright as a GET without the form body (it went out as a GET, but pilot announced the hop as a POST with the form data); 301/302/303 rewrite to GET, 307/308 keep the POST (moli-protocol network main_document_progress; conformance network.test.mjs)
-- [ ] Animation frames run on a 60 Hz grid like Chrome's vsync: the first requestAnimationFrame callback comes at the next frame boundary, so the two-frame stability wait in every Playwright click costs about 25 ms instead of 36 (window_host.rs; conformance frames.test.mjs)
-- [ ] Full-page PNG screenshots of a 1280-wide page over the 128 MB encode budget (30,000 px) or the 256 MB raster budget (55,000 px) succeed, drawn in bands (moli-paint raster_snapshot_in_bands; conformance screenshot-tall.test.mjs)
-- [ ] Record→replay design reviewed and its three questions answered (docs/record-replay.md: which tasks repeat, wrapper MCP OK, who triggers replays)
+- [x] A WebMCP tool in another window keeps naming that window: a script calling windowB.document.modelContext.getTools() gets tool.window === windowB, not its own window (web_mcp/api.rs; WPT webmcp/imperative/executeTool-across-trees, red in gate run 43434788241)
+- [x] The redirect after a form POST is reported to Playwright as a GET without the form body (it went out as a GET, but pilot announced the hop as a POST with the form data); 301/302/303 rewrite to GET, 307/308 keep the POST (moli-protocol network main_document_progress; conformance network.test.mjs)
+- [x] Animation frames run on a 60 Hz grid like Chrome's vsync: the first requestAnimationFrame callback comes at the next frame boundary, so the two-frame stability wait in every Playwright click costs about 25 ms instead of 36 (window_host.rs; conformance frames.test.mjs)
+- [x] Full-page PNG screenshots of a 1280-wide page over the 128 MB encode budget (30,000 px) or the 256 MB raster budget (55,000 px) succeed, drawn in bands (moli-paint raster_snapshot_in_bands; conformance screenshot-tall.test.mjs)
 - [x] Record→replay design reviewed and its three questions answered (docs/record-replay.md: which tasks repeat, wrapper MCP OK, who triggers replays)
-- [ ] Record→replay spike: pick the recording source (second CDP client on pilot's port, or Playwright context listeners) and prove fetch() replay in a pilot page carries cookies and a CSRF token (docs/record-replay.md step 7a)
+- [x] Record→replay design reviewed and its three questions answered (docs/record-replay.md: which tasks repeat, wrapper MCP OK, who triggers replays)
+- [x] Record→replay spike: pick the recording source (second CDP client on pilot's port, or Playwright context listeners) and prove fetch() replay in a pilot page carries cookies and a CSRF token (docs/record-replay.md step 7a)
 - [x] Record→replay analyzer traces each value in a recorded request to its source: a CSRF token from an earlier page's hidden input, an ID from an earlier JSON response, a header from an earlier response, text the agent typed, a regenerated timestamp, or a constant (pilot/mcp/src/analyze.ts)
 - [x] Record→replay analyzer flags a write whose body carries a long value found in no earlier response or input as JS-computed, and marks the recording not replayable (pilot/mcp/src/analyze.ts)
 - [x] Record→replay analyzer lists every write (non-GET request) a replay would repeat, so task_replay can require allow_writes (pilot/mcp/src/analyze.ts)
@@ -169,5 +169,5 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Record→replay stores each recording as one owner-only JSON file (0600, folder 0700) and refuses task names that could leave the recordings folder (pilot/mcp/src/store.ts)
 - [x] pilot-mcp serves Playwright MCP's tools plus task_start, task_finish and task_replay over MCP: a task recorded through browser_* calls replays with new inputs, writes need allow_writes, and a replay during a recording is refused (pilot/mcp/src/server.ts, tested against real pilot)
 - [x] pilot-mcp command: no arguments serves MCP on stdio, `replay <task> --input k=v [--allow-writes]` replays from a fresh profile and prints JSON (exit 0/1), `list` names the recorded tasks (pilot/mcp/src/main.ts)
-- [ ] pilot-mcp tests run in the GitHub gate's macOS job against the freshly built pilot (.github/workflows/pilot-gate.yml step "pilot-mcp") (needs live run)
+- [x] pilot-mcp tests run in the GitHub gate's macOS job against the freshly built pilot (.github/workflows/pilot-gate.yml step "pilot-mcp") (needs live run)
 - [ ] Record→replay on a real site: record a read-only task and a form submit with pilot-mcp, then replay both from cron with the CLI (needs live run)
