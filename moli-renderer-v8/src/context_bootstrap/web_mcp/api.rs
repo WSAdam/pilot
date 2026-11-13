@@ -310,11 +310,16 @@ fn get_tools<'s>(
     // wrapper). Naming the registering world's window made Playwright, which
     // calls getTools() from its utility world and keeps only tools whose
     // window is its own, see no tools at all.
+    // The caller's own document is the one whose window is the calling
+    // context's global, not the document `this` belongs to: a script calling
+    // another window's `modelContext.getTools()` must still see that window's
+    // tools name that window (WPT executeTool-across-trees).
     let caller_window = scope.get_current_context().global(scope);
+    let context_document = host.document_handle();
     let snapshots = tools
         .into_iter()
         .filter_map(|(tool_document, entry, name, tool)| {
-            let window = (tool_document == document).then_some(caller_window);
+            let window = (tool_document == context_document).then_some(caller_window);
             conversion::tool_snapshot(scope, entry, name, tool, window)
         })
         .map(Into::into)
@@ -427,10 +432,12 @@ fn execute_tool<'s>(
     }
     // pilot: getTools() names the caller's own window for the caller's
     // document's tools, so a reference from any world of that document
-    // matches it here too.
+    // matches it here too. As in getTools(), that document is the one whose
+    // window is the calling context's global.
     let caller_window = scope.get_current_context().global(scope);
     let target_document = {
         let host = unsafe { &*host_ptr };
+        let context_document = host.document_handle();
         host.native_bridge()
             .web_mcp
             .documents
@@ -439,7 +446,7 @@ fn execute_tool<'s>(
                 entry.frame_tree
                     == host.native_bridge().web_mcp.documents[&caller_document].frame_tree
                     && (v8::Local::new(scope, &entry.window).strict_equals(reference.window.into())
-                        || (**document == caller_document
+                        || (**document == context_document
                             && caller_window.strict_equals(reference.window.into())))
                     && document_owner(host, **document) == Some(entry.owner)
                     && host
