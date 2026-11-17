@@ -19,6 +19,7 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 | 7 | light | done 2026-11-13 in run 43442789601: the gate's macOS job runs pilot-mcp's 45 tests against the pilot it built (45/45) | record→replay: pilot-mcp analyzer, replay engine, recorder, store, MCP server and CLI | see Build 4–7 | see Build 4–7 | see Build 4–7 | f2e61912c … 94ae913a3 |
 | 4–7 | run | gate run 43442789601, 27 commits on `gate/build4-7`; main fast-forwarded to 94ae913a3 | Builds 3–7 together, one run instead of four, after GitHub paused Actions on the fork for its usage (2026-11-10 to 2026-11-13) | Linux: clippy 8.6 GB, nextest 10.9 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0 | 2 h 21 min. Linux: clippy 14 min, nextest 49 + 3 min (22,095 + 216 tests), release 20 min, smoke 2 min. Mac: release 43 min, conformance 43 pass and 3 Build 3b todo, pilot-mcp 45/45. MCP tools re-measure on the Mac binary: 39/39 | release binaries only (downloaded) | this commit |
 | 3b | heavy | done 2026-11-17, gate run 44124162484 (the second on `gate/build3b`); main fast-forwarded to e6217329d. The first run, 44111028067, failed two upstream Playwright-over-CDP tests whose helper expected a child frame's new context before its commit; Chrome sends the commit first, so the helper now waits for the context after it | a viewport resize reaches ResizeObservers; a child frame's commit is sent before its own child frames attach (nested iframes list all 3 frames); beforeunload and its dialog on Playwright-started navigations | Linux: clippy 8.6 GB, nextest 11.4 GB, release 6.9 GB. Mac release 3.4 GB. Your Mac: 0 | 1 h 53 min. Linux: clippy 11 min, nextest 38 + 3 min (22,103 + 216 tests; 2 upstream fetch-deadline tests flaky, passed on retry), release 16 min, smoke 2 min. Mac: release 38 min, conformance 46 pass and 0 todo, pilot-mcp 45/45 | release binaries only (downloaded) | 91887b4c7 … e6217329d |
+| 8 | heavy | prep 2026-11-17: 5 conformance tests red on the 3b binary, fixes being written | file:// subresources, listbox option offset metrics, 980px layout without a viewport meta tag on phones, beforeunload for page-started navigations, inserted-script page errors | | | | 7c7742d17 … |
 | opt | heavy | only on request | network-fingerprint leftovers | | | | |
 
 **How a build moves through it:**
@@ -141,6 +142,20 @@ Triage dropped `browser_mouse_click_xy`, `--init-script` with `--isolated`, and 
 - The first run of a task drives pilot and records the requests each action fires. Later runs replay them through pilot's network stack, and fall back to the browser when a replay fails.
 - It's light as long as `moli-fetch` and `moli-curl` are used as they are. Any change to them makes it heavy.
 - Design first, then size the build.
+
+### Build 8: heavy, the leftovers (prep 2026-11-17)
+Five gaps left open after Builds 1–7 and 3b, each with a conformance test in `pilot/conformance/leftovers.test.mjs`, all red against the 3b binary:
+| Item | Where | TODO |
+|---|---|---|
+| A `file://` page's relative stylesheet, script and image load (Chrome loads them; pilot loaded only the document) | network transport check, file loader from Build 3 | line 146 |
+| A listbox `<option>` has a principal box, so offsetWidth/Height/Top and ResizeObserver see its row | layout | line 147 |
+| Under phone emulation a page without `<meta name=viewport>` lays out at 980px; `width=device-width` at the device width | emulation, layout viewport | line 94 |
+| beforeunload and its dialog for navigations the page starts (location.href, history.back()) | renderer navigation, 3b's beforeunload machinery | line 174 |
+| A throwing `<script>` inserted from page.evaluate reports a page error | uncaught-error reporting from Build 1 | line 130 |
+
+Left open: the beforeunload timeout for a hung page (line 176) and the cross-session dialog case (line 177).
+
+**After Build 8:** the two deferred speed items from Build 5 (the Live re-layout after focus or hover, and the injected-script code cache).
 
 ### Optional, heavy: network-fingerprint leftovers (low payoff)
 - The items:
