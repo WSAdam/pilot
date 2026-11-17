@@ -266,14 +266,28 @@ async fn assert_child_frame_navigation_completion(
         },
     )
     .await;
+    // 2026-11-17: a child's frameNavigated now goes out at commit, before its
+    // load completes, so a frameStoppedLoading left by an earlier Document of
+    // the same frame must not end the wait for this Document's completion.
     let child_frame_id_owned = child_frame_id.to_owned();
-    wait_until_message(
+    wait_until_messages(
         ctx,
         "SID-1",
-        "child frame Page.frameStoppedLoading",
-        move |message| {
-            message["method"] == json!("Page.frameStoppedLoading")
-                && message["params"]["frameId"] == json!(child_frame_id_owned)
+        "child frame Page.frameStoppedLoading after its Page.frameNavigated",
+        move |messages| {
+            let Some(navigated_index) = messages.iter().position(|message| {
+                message["method"] == json!("Page.frameNavigated")
+                    && message["params"]["frame"]["id"] == json!(child_frame_id_owned)
+                    && expected_url.is_none_or(|expected_url| {
+                        message["params"]["frame"]["url"] == json!(expected_url)
+                    })
+            }) else {
+                return false;
+            };
+            messages[navigated_index + 1..].iter().any(|message| {
+                message["method"] == json!("Page.frameStoppedLoading")
+                    && message["params"]["frameId"] == json!(child_frame_id_owned)
+            })
         },
     )
     .await;
