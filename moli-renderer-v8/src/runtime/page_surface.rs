@@ -4915,6 +4915,10 @@ pub enum RendererPageCommand {
     RemoveRuntimeBinding(String),
     RemoveDefaultRuntimeBinding(String),
     QueueTopLevelHistoryTraversalByDelta(i64),
+    /// Runs `beforeunload` (and its dialog) in the top-level Document before a
+    /// browser-started navigation leaves it; replies `Bool(proceed)`. It must
+    /// not be interruptible by a JavaScript dialog: it opens one.
+    RunTopLevelBeforeUnload,
     RunPageSurfaceOverrideScript {
         source: String,
     },

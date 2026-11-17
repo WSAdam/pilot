@@ -124,6 +124,7 @@ impl RendererPageCommand {
             | Self::RemoveRuntimeBinding(..)
             | Self::RemoveDefaultRuntimeBinding(..)
             | Self::QueueTopLevelHistoryTraversalByDelta(..)
+            | Self::RunTopLevelBeforeUnload
             | Self::RunPageSurfaceOverrideScript { .. }
             | Self::AddDocumentStartScriptRuntimeActivity { .. }
             | Self::RemoveDocumentStartScriptByRegistryKey(..)

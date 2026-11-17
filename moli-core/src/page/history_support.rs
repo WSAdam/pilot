@@ -31,4 +31,12 @@ impl Page {
         let reply = self.finish_page_command(completion);
         Self::decode_bool_page_reply(reply, "top-level history traversal")
     }
+
+    /// Runs `beforeunload` in the top-level Document before a browser-started
+    /// navigation leaves it. The renderer may open a `beforeunload` dialog
+    /// and wait for its answer; the completion's bool reply says whether the
+    /// navigation may go on.
+    pub fn start_top_level_beforeunload(&self) -> Result<PendingPageCommand> {
+        self.start_page_command(RendererPageCommand::RunTopLevelBeforeUnload)
+    }
 }

@@ -1,4 +1,7 @@
-use super::events::{construct_original_event, run_navigate_event_precommit_handlers};
+use super::events::{
+    construct_original_beforeunload_event, construct_original_event,
+    run_navigate_event_precommit_handlers,
+};
 use super::location_runtime::{is_same_document_fragment_navigation, location_href_slot};
 use super::media_queries::dispatch_simple_event_target_event;
 use super::navigation_callbacks::cancel_active_intercepted_same_document_navigation;
@@ -632,10 +635,32 @@ pub(crate) fn dispatch_beforeunload_for_runtime_owner<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     owner: v8::Local<'s, v8::Object>,
 ) {
-    let Some(event) = construct_original_event(scope, "beforeunload") else {
-        return;
+    let _ = dispatch_cancelable_beforeunload_for_runtime_owner(scope, owner);
+}
+
+/// Dispatches a cancelable trusted `beforeunload` at `owner` and reports
+/// whether a listener canceled it.
+fn dispatch_cancelable_beforeunload_for_runtime_owner<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    owner: v8::Local<'s, v8::Object>,
+) -> bool {
+    let Some(event) = construct_original_beforeunload_event(scope) else {
+        return false;
     };
     dispatch_unload_lifecycle_event_for_runtime_owner(scope, owner, "beforeunload", event);
+    crate::context_bootstrap::event_bool_attribute(scope, event, "defaultPrevented")
+}
+
+/// Chrome's "prompt to unload" for the top-level Document, run before a
+/// browser-started navigation, reload or traversal leaves it. A canceled
+/// `beforeunload` asks the user through a `beforeunload` dialog when the
+/// Document has sticky activation. Returns whether the navigation may go on.
+pub(crate) fn run_top_level_beforeunload(scope: &mut v8::PinScope<'_, '_>) -> bool {
+    let owner = scope.get_current_context().global(scope);
+    if !dispatch_cancelable_beforeunload_for_runtime_owner(scope, owner) {
+        return true;
+    }
+    super::window_runtime::confirm_top_level_beforeunload(scope)
 }
 
 pub(crate) fn dispatch_unload_for_runtime_owner<'s>(

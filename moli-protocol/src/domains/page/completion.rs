@@ -351,6 +351,9 @@ pub(crate) fn complete_finite(
                 conn, command_id, *completed,
             );
         }
+        CompletedPageCommandKind::BeforeUnload(completed) => {
+            return navigation::complete_pending_beforeunload_command(conn, command_id, *completed);
+        }
         _ => unreachable!("composite Page completion is prepared separately"),
     };
     PageCommandTaskStep::Complete(plan)

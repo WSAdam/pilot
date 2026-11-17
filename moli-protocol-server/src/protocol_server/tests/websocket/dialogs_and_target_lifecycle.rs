@@ -509,6 +509,251 @@ async fn websocket_cdp_handle_javascript_dialog_prompt_text_resumes_prompt() {
     protocol_server.abort();
 }
 
+/// Cancels beforeunload the way Playwright's fixtures do, and logs so a test
+/// can see that beforeunload ran.
+const BEFOREUNLOAD_GUARD_URL: &str = "data:text/html,<title>guard</title><script>addEventListener('beforeunload', event => { console.log('moli beforeunload'); event.preventDefault(); event.returnValue = ''; })</script>";
+const BEFOREUNLOAD_FIRST_URL: &str = "data:text/html,<title>first</title><main>first</main>";
+const BEFOREUNLOAD_SECOND_URL: &str = "data:text/html,<title>second</title><main>second</main>";
+
+fn is_session_event(message: &serde_json::Value, session_id: &str, method: &str) -> bool {
+    message["sessionId"].as_str() == Some(session_id) && message["method"] == json!(method)
+}
+
+// 2026-11-17: Page.navigateToHistoryEntry never ran beforeunload, so going back
+// from a page that cancels it, after a user gesture, opened no dialog.
+#[tokio::test]
+async fn websocket_cdp_going_back_from_canceling_page_opens_beforeunload_dialog() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let session_id =
+        cdp_create_default_session_and_navigate(&mut socket, BEFOREUNLOAD_FIRST_URL).await;
+    cdp_navigate_and_wait_for_load(&mut socket, 6, &session_id, BEFOREUNLOAD_GUARD_URL).await;
+    let gesture = send_cdp_command(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({ "expression": "document.title", "returnByValue": true, "userGesture": true }),
+    )
+    .await;
+    assert!(
+        gesture.iter().any(|message| message["id"] == json!(7_u64)
+            && message["result"]["result"]["value"] == json!("guard")),
+        "the user gesture must reach the guard page: {gesture:#?}"
+    );
+    let history = send_cdp_command(
+        &mut socket,
+        8,
+        "Page.getNavigationHistory",
+        Some(&session_id),
+        json!({}),
+    )
+    .await;
+    let history = history
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("Page.getNavigationHistory response");
+    let current_index = history["result"]["currentIndex"]
+        .as_u64()
+        .and_then(|index| usize::try_from(index).ok())
+        .expect("current history index");
+    let back_entry_id = history["result"]["entries"][current_index - 1]["id"].clone();
+    assert!(back_entry_id.is_i64(), "back entry: {history:#?}");
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        9,
+        "Page.navigateToHistoryEntry",
+        Some(&session_id),
+        json!({ "entryId": back_entry_id }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert_eq!(opening["params"]["message"], json!(""), "{observed:#?}");
+    assert!(
+        !observed.iter().any(|message| message["id"] == json!(9_u64)),
+        "the traversal must wait for the beforeunload dialog: {observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            10,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": true }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(9_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(9_u64)).await);
+    }
+    let traversal = observed
+        .iter()
+        .find(|message| message["id"] == json!(9_u64))
+        .expect("Page.navigateToHistoryEntry response");
+    assert_eq!(traversal["result"], json!({}), "{observed:#?}");
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &session_id, "Page.loadEventFired"))
+    {
+        recv_until_match(&mut socket, |message| {
+            is_session_event(message, &session_id, "Page.loadEventFired")
+        })
+        .await;
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 11, "document.title").await,
+        "first",
+        "accepting the beforeunload dialog lets the traversal finish"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: Page.navigate never ran beforeunload; dismissing the dialog of a
+// page that cancels it must keep the page and answer net::ERR_ABORTED.
+#[tokio::test]
+async fn websocket_cdp_dismissed_beforeunload_dialog_aborts_page_navigate() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let session_id =
+        cdp_create_default_session_and_navigate(&mut socket, BEFOREUNLOAD_GUARD_URL).await;
+    let gesture = send_cdp_command(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({ "expression": "document.title", "returnByValue": true, "userGesture": true }),
+    )
+    .await;
+    assert!(
+        gesture.iter().any(|message| message["id"] == json!(7_u64)
+            && message["result"]["result"]["value"] == json!("guard")),
+        "the user gesture must reach the guard page: {gesture:#?}"
+    );
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        8,
+        "Page.navigate",
+        Some(&session_id),
+        json!({ "url": BEFOREUNLOAD_SECOND_URL }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert!(
+        !observed.iter().any(|message| message["id"] == json!(8_u64)),
+        "Page.navigate must wait for the beforeunload dialog: {observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            9,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(8_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(8_u64)).await);
+    }
+    let navigate = observed
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("Page.navigate response");
+    assert_eq!(
+        navigate["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "{observed:#?}"
+    );
+    assert!(navigate["result"]["frameId"].is_string(), "{observed:#?}");
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 10, "document.title").await,
+        "guard",
+        "dismissing the beforeunload dialog keeps the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: Page.navigate never ran beforeunload. Without sticky activation a
+// canceled beforeunload opens no dialog and the navigation goes on.
+#[tokio::test]
+async fn websocket_cdp_page_navigate_runs_beforeunload_without_dialog_before_user_gesture() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let session_id =
+        cdp_create_default_session_and_navigate(&mut socket, BEFOREUNLOAD_GUARD_URL).await;
+
+    let messages =
+        cdp_navigate_and_wait_for_load(&mut socket, 7, &session_id, BEFOREUNLOAD_SECOND_URL).await;
+    assert!(
+        messages.iter().any(|message| {
+            is_session_event(message, &session_id, "Runtime.consoleAPICalled")
+                && message["params"]["args"][0]["value"] == json!("moli beforeunload")
+        }),
+        "Page.navigate must run beforeunload in the page it leaves: {messages:#?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == json!("Page.javascriptDialogOpening")),
+        "no beforeunload dialog without sticky activation: {messages:#?}"
+    );
+    let navigate = messages
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Page.navigate response");
+    assert!(
+        navigate["result"]["errorText"].is_null(),
+        "the navigation must go on: {messages:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 8, "document.title").await,
+        "second"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 #[tokio::test]
 async fn websocket_cdp_lifecycle_events_include_load_marker() {
     async fn page() -> impl IntoResponse {

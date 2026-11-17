@@ -783,6 +783,19 @@ impl JsContextHost {
         self.protocol_user_gesture_activation_depth = self
             .protocol_user_gesture_activation_depth
             .saturating_add(1);
+        self.note_sticky_user_activation();
+    }
+
+    /// Records an activation-triggering user gesture: trusted input or a
+    /// protocol `userGesture`. Sticky activation then lasts for the life of
+    /// the Document, which decides whether a canceled `beforeunload` may ask
+    /// the user to stay.
+    pub(crate) fn note_sticky_user_activation(&mut self) {
+        self.sticky_user_activation = true;
+    }
+
+    pub(crate) fn has_sticky_user_activation(&self) -> bool {
+        self.sticky_user_activation || self.protocol_user_gesture_activation()
     }
 
     pub(crate) fn end_protocol_user_gesture_activation(&mut self) {

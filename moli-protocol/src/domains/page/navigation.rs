@@ -129,6 +129,20 @@ pub(super) struct CompletedSameDocumentHistoryTraversalCommand {
     fallback: HistoryTraversalUrlFallback,
 }
 
+/// A browser-started navigation, reload or traversal waiting for
+/// `beforeunload` in the top-level Document it is about to leave.
+pub(super) struct PendingBeforeUnloadCommand {
+    pending: PendingPageCommand,
+    command: AutomationCommand,
+    options: DevToolsNavigationStartOptions,
+}
+
+pub(super) struct CompletedBeforeUnloadCommand {
+    completed: Result<CompletedPageCommand>,
+    command: AutomationCommand,
+    options: DevToolsNavigationStartOptions,
+}
+
 impl CompletedNavigateLoadCommand {
     pub(crate) fn prepare_owned(
         self,
@@ -195,6 +209,15 @@ impl CompletedSameDocumentHistoryTraversalCommand {
     }
 }
 
+impl CompletedBeforeUnloadCommand {
+    pub(super) fn renderer_output_predecessor(&self) -> Option<moli_core::RendererOutputFence> {
+        self.completed
+            .as_ref()
+            .ok()
+            .and_then(CompletedPageCommand::renderer_output_predecessor)
+    }
+}
+
 impl PendingNavigateLoadCommand {
     pub(super) async fn wait(self) -> CompletedNavigateLoadCommand {
         let (navigation, _early_result_sent) = self.job.run(None).await;
@@ -244,6 +267,16 @@ impl PendingSameDocumentHistoryTraversalCommand {
         CompletedSameDocumentHistoryTraversalCommand {
             completed: self.pending.wait().await,
             fallback: self.fallback,
+        }
+    }
+}
+
+impl PendingBeforeUnloadCommand {
+    pub(super) async fn wait(self) -> CompletedBeforeUnloadCommand {
+        CompletedBeforeUnloadCommand {
+            completed: self.pending.wait().await,
+            command: self.command,
+            options: self.options,
         }
     }
 }
@@ -850,6 +883,142 @@ struct DevToolsNavigationStartOptions {
 }
 
 fn start_devtools_page_command(
+    conn: &mut CdpConnection,
+    command_id: Option<u64>,
+    command: AutomationCommand,
+    options: DevToolsNavigationStartOptions,
+) -> PageCommandTaskStep {
+    if let Some(pending) = start_top_level_beforeunload(conn, &command, &options) {
+        return PageCommandTaskStep::Pending(super::PendingPageCommandDispatch {
+            command_id,
+            owner_scope: options.owner.clone(),
+            kind: Box::new(super::PendingPageCommandKind::BeforeUnload(Box::new(
+                PendingBeforeUnloadCommand {
+                    pending,
+                    command,
+                    options,
+                },
+            ))),
+        });
+    }
+    start_devtools_page_command_after_beforeunload(conn, command_id, command, options)
+}
+
+/// Like Chrome, a CDP Page.navigate, Page.reload or Page.navigateToHistoryEntry
+/// first runs `beforeunload` in the loaded top-level Document it will leave.
+/// Child-frame, same-document fragment and same-document history navigations
+/// keep that Document and skip it. So does a Document that cannot run script
+/// now: the initial `about:blank`, one already being replaced, a crashed one,
+/// one paused in the debugger, or one blocked on a JavaScript dialog.
+fn start_top_level_beforeunload(
+    conn: &mut CdpConnection,
+    command: &AutomationCommand,
+    options: &DevToolsNavigationStartOptions,
+) -> Option<PendingPageCommand> {
+    if !matches!(
+        options.result_projection,
+        NavigationResultProjection::Cdp(_)
+    ) {
+        return None;
+    }
+    let owner = &options.owner;
+    let leaves_document = match command {
+        AutomationCommand::Navigate(command) => {
+            Url::parse(&command.url).is_ok_and(|url| url.scheme() != "javascript")
+                && child_frame_navigation_target_id(conn, owner, command).is_none()
+                && !session_owner_navigation_is_same_document_fragment(
+                    conn,
+                    owner,
+                    command.url.as_str(),
+                )
+        }
+        AutomationCommand::Reload(_) => true,
+        AutomationCommand::TraverseHistory(command) => matches!(
+            resolve_devtools_history_traversal_destination(conn, owner, &command.destination),
+            Ok(ResolvedDevToolsHistoryTraversal::Entry {
+                same_document_delta: None,
+                ..
+            })
+        ),
+        _ => false,
+    };
+    if !leaves_document
+        || conn.runtime_session_owner_target_is_initial_about_blank(owner.session_id())
+        || conn
+            .target_owner_state_for_owner(owner)
+            .is_some_and(|owner_state| owner_state.target_crash_state.is_crashed())
+        || conn
+            .target_page_session_state_for_owner(owner)
+            .is_some_and(|page_state| !page_state.javascript_dialog_state.is_empty())
+    {
+        return None;
+    }
+    let page = conn
+        .loaded_page_mut_for_protocol_access_for_owner(owner)
+        .ok()?;
+    if page.runtime_inspector_pause_active() {
+        return None;
+    }
+    match page.start_top_level_beforeunload() {
+        Ok(pending) => Some(pending),
+        Err(error) => {
+            tracing::debug!(
+                session_id = owner.session_id(),
+                error = %error,
+                "navigating without beforeunload: the renderer did not accept it"
+            );
+            None
+        }
+    }
+}
+
+/// Finishes the `beforeunload` step: the original command runs when the
+/// Document may be left. When the user chose to stay, Page.navigate answers
+/// `net::ERR_ABORTED` as Chrome does; reload and traversal answer `{}`.
+pub(super) fn complete_pending_beforeunload_command(
+    conn: &mut CdpConnection,
+    command_id: Option<u64>,
+    completed: CompletedBeforeUnloadCommand,
+) -> PageCommandTaskStep {
+    let CompletedBeforeUnloadCommand {
+        completed,
+        command,
+        options,
+    } = completed;
+    // Read the reply without applying its page state: a Document replaced
+    // while the dialog was open must not take the old Document's state.
+    let proceed = match completed {
+        Ok(completion) => completion.bool_reply_value().unwrap_or_else(|| {
+            tracing::debug!("navigating on: beforeunload returned an unexpected reply");
+            true
+        }),
+        Err(error) => {
+            tracing::debug!(
+                error = %error,
+                "navigating on: beforeunload did not complete"
+            );
+            true
+        }
+    };
+    if proceed {
+        return start_devtools_page_command_after_beforeunload(conn, command_id, command, options);
+    }
+    let plan = match command {
+        AutomationCommand::Navigate(_) => {
+            let mut result = options.result_projection.payload().clone();
+            if let Some(payload) = result.as_object_mut() {
+                payload.remove("loaderId");
+                payload.insert("errorText".to_owned(), json!(NET_ERR_ABORTED_ERROR_TEXT));
+                payload.insert("isDownload".to_owned(), json!(false));
+            }
+            CommandOutputPlan::result(result)
+        }
+        _ => CommandOutputPlan::from_devtools_result(AutomationResult::Empty),
+    };
+    PageCommandTaskStep::Complete(plan)
+}
+
+fn start_devtools_page_command_after_beforeunload(
     conn: &mut CdpConnection,
     command_id: Option<u64>,
     command: AutomationCommand,

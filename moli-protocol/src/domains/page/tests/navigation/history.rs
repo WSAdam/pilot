@@ -390,6 +390,111 @@ async fn navigation_bootstraps_browser_history_length_before_author_scripts() {
     server.abort();
 }
 
+// 2026-11-17: Page.navigate, Page.reload and Page.navigateToHistoryEntry never
+// dispatched beforeunload in the Document they were leaving.
+#[tokio::test(flavor = "multi_thread")]
+async fn browser_started_navigations_dispatch_beforeunload_in_the_document_they_leave() {
+    async fn page() -> impl axum::response::IntoResponse {
+        (
+            [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
+            "<!doctype html><script>addEventListener('beforeunload', event => { \
+             sessionStorage.setItem('beforeunload', String(Number(sessionStorage.getItem('beforeunload')) + 1)); \
+             event.preventDefault(); })</script>",
+        )
+    }
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind beforeunload server");
+    let addr = listener.local_addr().expect("beforeunload server address");
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route("/{page}", axum::routing::get(page)),
+        )
+        .await
+        .unwrap();
+    });
+    let mut ctx = TestContext::new();
+    load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
+    ctx.enable_page_events_for_test(Some("SID-1"));
+    let first_url = format!("http://{addr}/first");
+    let second_url = format!("http://{addr}/second");
+    let mut first_entry_id = None;
+
+    // Every page cancels beforeunload, but none has sticky user activation, so
+    // like Chrome each navigation goes on without a beforeunload dialog.
+    for step in 0..4 {
+        ctx.sent.clear();
+        let (method, params) = match step {
+            0 => ("Page.navigate", json!({ "url": first_url })),
+            1 => ("Page.navigate", json!({ "url": second_url })),
+            2 => ("Page.reload", json!({})),
+            _ => (
+                "Page.navigateToHistoryEntry",
+                json!({ "entryId": first_entry_id }),
+            ),
+        };
+        ctx.process_async(json!({
+            "id": 9220,
+            "method": method,
+            "sessionId": "SID-1",
+            "params": params
+        }))
+        .await;
+        let response = take_response_by_id(&mut ctx, 9220);
+        assert!(response["error"].is_null(), "{method}: {response}");
+        assert!(
+            response["result"]["errorText"].is_null(),
+            "{method} must not be canceled: {response}"
+        );
+        wait_until_message(
+            &mut ctx,
+            Some("SID-1"),
+            "beforeunload test document DOMContentLoaded",
+            |message| message["method"] == json!("Page.domContentEventFired"),
+        )
+        .await;
+        assert!(
+            !ctx.sent
+                .iter()
+                .any(|message| message["method"] == json!("Page.javascriptDialogOpening")),
+            "{method}: no beforeunload dialog without sticky activation: {:?}",
+            ctx.sent
+        );
+        if step == 0 {
+            ctx.process_async(json!({
+                "id": 9221,
+                "method": "Page.getNavigationHistory",
+                "sessionId": "SID-1"
+            }))
+            .await;
+            let history = take_response_by_id(&mut ctx, 9221);
+            first_entry_id = history["result"]["entries"][1]["id"].as_i64();
+            assert!(first_entry_id.is_some(), "first entry id: {history}");
+        }
+    }
+
+    // Leaving the initial about:blank ran no listener; leaving first, reloading
+    // second and going back from second each ran it once.
+    ctx.process_async(json!({
+        "id": 9222,
+        "method": "Runtime.evaluate",
+        "sessionId": "SID-1",
+        "params": {
+            "expression": "[location.pathname, sessionStorage.getItem('beforeunload')]",
+            "returnByValue": true
+        }
+    }))
+    .await;
+    let state = take_response_by_id(&mut ctx, 9222);
+    assert_eq!(
+        state["result"]["result"]["value"],
+        json!(["/first", "3"]),
+        "{state}"
+    );
+    server.abort();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn navigation_history_supports_playwright_back_forward_commands() {
     let mut ctx = TestContext::new();

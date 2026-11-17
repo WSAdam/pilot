@@ -222,6 +222,9 @@ enum PendingPageCommandKind {
     },
     Navigate(Box<navigation::PendingNavigateLoadCommand>),
     TraverseSameDocumentHistory(Box<navigation::PendingSameDocumentHistoryTraversalCommand>),
+    /// `beforeunload` in the Document a browser-started navigation is about
+    /// to leave; the navigation itself starts once it is allowed.
+    BeforeUnload(Box<navigation::PendingBeforeUnloadCommand>),
     ChildFrameNavigate(Box<navigation::PendingChildFrameNavigateCommand>),
     ContinueNavigationWithoutRequestPause(
         Box<navigation::PendingContinueNavigationWithoutRequestPauseCommand>,
@@ -290,6 +293,7 @@ enum CompletedPageCommandKind {
     },
     Navigate(Box<navigation::CompletedNavigateLoadCommand>),
     TraverseSameDocumentHistory(Box<navigation::CompletedSameDocumentHistoryTraversalCommand>),
+    BeforeUnload(Box<navigation::CompletedBeforeUnloadCommand>),
     ChildFrameNavigate(Box<navigation::CompletedChildFrameNavigateCommand>),
     ContinueNavigationWithoutRequestPause(
         Box<navigation::CompletedContinueNavigationWithoutRequestPauseCommand>,
@@ -326,6 +330,7 @@ impl CompletedPageCommandKind {
             Self::GetAppManifest(completed) => completed.renderer_output_predecessor(),
             Self::SameDocumentNavigate(completed) => completed.renderer_output_predecessor(),
             Self::TraverseSameDocumentHistory(completed) => completed.renderer_output_predecessor(),
+            Self::BeforeUnload(completed) => completed.renderer_output_predecessor(),
             Self::ChildFrameNavigate(completed) => completed.renderer_output_predecessor(),
             Self::BringToFront { .. }
             | Self::AddScriptToEvaluateOnNewDocument(_)
@@ -454,6 +459,9 @@ impl PendingPageCommandDispatch {
                 CompletedPageCommandKind::TraverseSameDocumentHistory(Box::new(
                     pending.wait().await,
                 ))
+            }
+            PendingPageCommandKind::BeforeUnload(pending) => {
+                CompletedPageCommandKind::BeforeUnload(Box::new(pending.wait().await))
             }
             PendingPageCommandKind::ChildFrameNavigate(pending) => {
                 CompletedPageCommandKind::ChildFrameNavigate(Box::new(pending.wait().await))

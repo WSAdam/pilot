@@ -56,6 +56,15 @@ struct PageTransitionEventInitDeclaration {
     persisted: bool,
 }
 
+#[derive(WebApiObject)]
+#[webapi(plain)]
+struct BeforeUnloadEventInitDeclaration {
+    #[webapi(data_property, enumerable)]
+    bubbles: bool,
+    #[webapi(data_property, enumerable)]
+    cancelable: bool,
+}
+
 #[derive(Default, WebApiObject)]
 #[webapi(fragment, prototype = "PointerEvent", enumerable)]
 struct SecurePointerEventPrototypeRuntimeDeclaration {
@@ -78,6 +87,26 @@ pub(crate) fn construct_original_event<'s>(
         let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
         let scope = try_catch.init();
         event_ctor.new_instance(&scope, &[event_type.into()])
+    }?;
+    mark_event_trusted(scope, event);
+    Some(event)
+}
+
+/// A trusted `beforeunload` event. Chrome dispatches it cancelable: a
+/// listener asks to stay with `preventDefault()` or a `returnValue`.
+pub(in crate::context_bootstrap) fn construct_original_beforeunload_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let event_ctor =
+        super::exposed_interfaces::ensure_intrinsic_interface_constructor(scope, "Event").ok()?;
+    let event_type = v8_string(scope, "beforeunload")?;
+    let init = BeforeUnloadEventInitDeclaration::new(false, true)
+        .bind(scope)
+        .ok()?;
+    let event = {
+        let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
+        let scope = try_catch.init();
+        event_ctor.new_instance(&scope, &[event_type.into(), init.into()])
     }?;
     mark_event_trusted(scope, event);
     Some(event)

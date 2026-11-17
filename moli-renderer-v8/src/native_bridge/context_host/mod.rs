@@ -887,6 +887,9 @@ pub(crate) struct JsContextHost {
     permission_overrides: Vec<crate::protocol_types::PermissionOverrideRegistration>,
     idle_override: Option<crate::protocol_types::EmulatedIdleOverride>,
     protocol_user_gesture_activation_depth: usize,
+    /// Sticky user activation of this host's Document. Each committed
+    /// Document gets a new host, so it never outlives its Document.
+    sticky_user_activation: bool,
     current_input_event: Option<crate::native_bridge::CurrentInputEvent>,
     webdriver_bidi_file_prompt_handler_stack: Vec<String>,
     emulated_media: crate::protocol_types::EmulatedMediaOverrides,

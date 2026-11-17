@@ -205,7 +205,7 @@ test('a ResizeObserver on the body fires when the viewport is resized', { timeou
 // 2026-11-10: beforeunload never ran for navigations Playwright starts (goto,
 // goBack, goForward), so a page that cancels it opened no dialog (MCP
 // dialogs.spec dialog during navigate back, CLI go-back/go-forward with dialog).
-test('going back from a page that cancels beforeunload opens a beforeunload dialog', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('going back from a page that cancels beforeunload opens a beforeunload dialog', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.goto(`${fixture.baseUrl}/greeting.html`);
     await page.goto(`${fixture.baseUrl}/leave-guard.html`);

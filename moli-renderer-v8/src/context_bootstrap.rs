@@ -199,6 +199,7 @@ pub(crate) use navigation_cancellation::{
 pub(crate) use navigation_events::{
     construct_original_hash_change_event, dispatch_beforeunload_for_runtime_owner,
     dispatch_pagehide_for_runtime_owner, dispatch_unload_for_runtime_owner,
+    run_top_level_beforeunload,
 };
 pub(crate) use navigation_events::{
     dispatch_cross_document_navigation_navigate_event_for_window_with_form_data,

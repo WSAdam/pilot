@@ -1087,6 +1087,10 @@ impl ScriptVm {
         }
         let buttons = buttons.unwrap_or(self.pressed_mouse_buttons);
         if event_name == "mousedown" {
+            // A trusted mousedown is an activation-triggering input event.
+            self._context_host
+                .borrow_mut()
+                .note_sticky_user_activation();
             self._context_host.borrow_mut().clear_mouse_press();
             self.pending_drag_gesture = None;
         } else if event_name == "mouseup" || self.pressed_mouse_buttons & 1 == 0 {
@@ -2249,6 +2253,12 @@ impl ScriptVm {
         event_name: &str,
         activate: bool,
     ) -> Result<RendererInputDispatchOutcome> {
+        // A trusted touchend is an activation-triggering input event.
+        if event_name == "touchend" {
+            self._context_host
+                .borrow_mut()
+                .note_sticky_user_activation();
+        }
         if activate
             && event_name == "touchend"
             && self.active_touch_event_handle.is_none()
@@ -2723,6 +2733,13 @@ impl ScriptVm {
         }
         if matches!(event_name, "keydown" | "keyup") {
             self.suppress_next_keypress_after_canceled_raw_keydown = false;
+        }
+        // A trusted keydown, other than Escape, is an activation-triggering
+        // input event.
+        if event_name == "keydown" && key != "Escape" {
+            self._context_host
+                .borrow_mut()
+                .note_sticky_user_activation();
         }
 
         let _current_input_event = CurrentInputEventScope::enter(

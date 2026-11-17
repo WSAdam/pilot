@@ -300,6 +300,10 @@ impl PageVm {
                 .vm_mut()
                 .queue_top_level_history_traversal_by_delta(delta)
                 .map(RendererPageReply::Bool),
+            RendererPageCommand::RunTopLevelBeforeUnload => self
+                .vm_mut()
+                .run_top_level_beforeunload()
+                .map(RendererPageReply::Bool),
             RendererPageCommand::RunPageSurfaceOverrideScript { source } => {
                 self.run_page_surface_override_script(&source)?;
                 Ok(RendererPageReply::Unit)

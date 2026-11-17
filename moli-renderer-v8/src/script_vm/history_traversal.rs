@@ -19,6 +19,15 @@ impl ScriptVm {
         })
     }
 
+    /// Runs `beforeunload`, and its dialog when the Document asks to stay,
+    /// in the top-level Document before a browser-started navigation, reload
+    /// or traversal leaves it. Returns whether the navigation may go on.
+    pub(crate) fn run_top_level_beforeunload(&mut self) -> Result<bool> {
+        self.with_default_context_scope(|scope, _host_ptr| {
+            Ok(crate::context_bootstrap::run_top_level_beforeunload(scope))
+        })
+    }
+
     pub(crate) fn current_pending_history_traversal_owner(
         &self,
         task_id: RendererPageHistoryTraversalTaskId,

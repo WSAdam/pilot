@@ -671,3 +671,50 @@ fn open_dialog(
         ),
     )
 }
+
+/// Asks whether to leave the top-level Document after a listener canceled
+/// its `beforeunload`, and returns whether the navigation may go on.
+///
+/// Like Chrome, the `beforeunload` dialog (empty message) opens only for a
+/// Document with sticky user activation whose sandbox allows modals, and
+/// only when a client handles dialogs; otherwise the navigation goes on.
+pub(in crate::context_bootstrap) fn confirm_top_level_beforeunload(
+    scope: &mut v8::PinScope<'_, '_>,
+) -> bool {
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return true;
+    };
+    let host = unsafe { &mut *host_ptr };
+    if !host.has_sticky_user_activation()
+        || !host.javascript_dialog_handler_enabled()
+        || !host.document_policy_container().sandbox.allows_modals
+    {
+        return true;
+    }
+    let Some((target, source_document, source)) =
+        host.renderer_window_document_source_for_dispatch_scope(OwnerDispatchScope::Top)
+    else {
+        return true;
+    };
+    let source_url = host
+        .dom_host()
+        .document_url()
+        .cloned()
+        .unwrap_or_else(|| host.document_url().clone())
+        .to_string();
+    let dialog_id = host.allocate_javascript_dialog_id();
+    host.open_modal_javascript_dialog(
+        target,
+        RendererPendingJavaScriptDialog::new(
+            dialog_id,
+            source_document,
+            source,
+            source_url,
+            "beforeunload".to_owned(),
+            String::new(),
+            String::new(),
+            None,
+        ),
+    )
+    .is_none_or(|result| result.accepted)
+}
