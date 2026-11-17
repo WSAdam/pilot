@@ -156,3 +156,33 @@ for (const style of ['return', 'returnValue']) {
       assert.equal(await page.title(), 'pilot conformance');
     }));
 }
+
+/** A PNG's pixel size, read from its IHDR chunk. */
+function pngSize(png) {
+  return [png.readUInt32BE(16), png.readUInt32BE(20)];
+}
+
+// 2026-11-17: Page.getLayoutMetrics reported the device pixel ratio as the
+// visual viewport's scale, where Chrome reports the page scale (1 on a
+// desktop). Playwright builds page.screenshot()'s clip from that scale, so at
+// any DPR other than 1 a screenshot showed a magnified top-left corner of the
+// page instead of the viewport (MCP --device screenshots).
+test('a screenshot at device pixel ratio 2 shows the whole viewport', { timeout: 60_000 }, () =>
+  withPage(async (page) => {
+    await page.setContent('<p>dpr two</p>');
+    const metrics = await (await page.context().newCDPSession(page)).send('Page.getLayoutMetrics');
+    assert.equal(metrics.cssVisualViewport.scale, 1, `visual viewport ${JSON.stringify(metrics.cssVisualViewport)}`);
+    assert.deepEqual(pngSize(await page.screenshot()), [2560, 1440]);
+  }, { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 }));
+
+// 2026-11-17: on a phone, Chrome shows a page without a viewport meta tag
+// laid out at 980px and scaled down to the screen width, so a screenshot is
+// the screen's pixel size (390x844 CSS px at DPR 3). This passes on the 3b
+// binary, which lays the page out at 390px; it guards the 980px layout, whose
+// page scale Playwright's clip must read from Page.getLayoutMetrics.
+test('a phone screenshot of a page without a viewport meta tag is the screen size', { timeout: 60_000 }, () =>
+  withPage(async (page) => {
+    await page.setContent('<p>no viewport meta</p>');
+    const [width, height] = pngSize(await page.screenshot());
+    assert.ok(Math.abs(width - 1170) <= 3 && Math.abs(height - 2532) <= 3, `screenshot ${width}x${height}`);
+  }, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }));
