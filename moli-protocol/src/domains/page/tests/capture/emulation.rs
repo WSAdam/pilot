@@ -473,3 +473,137 @@ async fn a_phone_screenshot_scales_the_980px_layout_into_the_screen() {
     .await;
     assert_eq!(layout["result"]["value"], json!([980, 980, 490]));
 }
+
+/// Playwright's `page.screenshot()` of a `viewport`-sized viewport (crPage
+/// `takeScreenshot`): a clip of the visual viewport built from
+/// `Page.getLayoutMetrics`, scaled by its `scale`, inside the viewport.
+async fn playwright_viewport_screenshot(
+    ctx: &mut TestContext,
+    viewport: (f64, f64),
+) -> (Value, Vec<u8>) {
+    let metrics = command(ctx, "Page.getLayoutMetrics", json!({})).await;
+    let visual = &metrics["visualViewport"];
+    let scale = visual["scale"].as_f64().expect("visual viewport scale");
+    let clip = json!({
+        "x": visual["pageX"],
+        "y": visual["pageY"],
+        "width": (viewport.0 / scale + 1e-3).floor(),
+        "height": (viewport.1 / scale + 1e-3).floor(),
+        "scale": scale,
+    });
+    let screenshot = command(
+        ctx,
+        "Page.captureScreenshot",
+        json!({"clip": clip, "captureBeyondViewport": false}),
+    )
+    .await;
+    (metrics, png(&screenshot["data"]))
+}
+
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    (
+        u32::from_be_bytes(bytes[16..20].try_into().unwrap()),
+        u32::from_be_bytes(bytes[20..24].try_into().unwrap()),
+    )
+}
+
+// 2026-11-17: Page.getLayoutMetrics reported the device pixel ratio as the visual viewport's scale, so Playwright's screenshot clip at DPR 2 showed the top-left quarter of the page; Chrome reports scale 1 on a desktop.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dpr_2_screenshot_through_playwrights_clip_shows_the_whole_viewport() {
+    let mut ctx = TestContext::new();
+    install_active_screenshot_page(
+        &mut ctx,
+        "BID-VIEW-CAPTURE",
+        "TID-VIEW-CAPTURE",
+        SESSION,
+        &screenshot_data_url(
+            r#"<!doctype html><style>
+                html { background: blue; scrollbar-width: none }
+                body { margin: 0 }
+                #corner {
+                    position: absolute; left: 1180px; top: 620px;
+                    width: 100px; height: 100px; background: red
+                }
+            </style><div id="corner"></div>"#,
+        ),
+    )
+    .await;
+    set_metrics(
+        &mut ctx,
+        json!({"width": 1280, "height": 720, "deviceScaleFactor": 2}),
+    )
+    .await;
+
+    let (metrics, image) = playwright_viewport_screenshot(&mut ctx, (1280.0, 720.0)).await;
+    for viewport in ["visualViewport", "cssVisualViewport"] {
+        assert_eq!(metrics[viewport]["scale"], 1.0, "{metrics}");
+        assert_eq!(metrics[viewport]["clientWidth"], 1280.0, "{metrics}");
+        assert_eq!(metrics[viewport]["clientHeight"], 720.0, "{metrics}");
+    }
+    assert_eq!(
+        metrics["cssLayoutViewport"]["clientWidth"], 1280,
+        "{metrics}"
+    );
+    assert_eq!(
+        metrics["cssLayoutViewport"]["clientHeight"], 720,
+        "{metrics}"
+    );
+    assert_png_dimensions(&image, 2560, 1440);
+    // The red square in the viewport's bottom-right corner is in the picture.
+    assert_eq!(decode_png_pixel(&image, 2500, 1400), [255, 0, 0, 255]);
+    assert_eq!(decode_png_pixel(&image, 100, 100), [0, 0, 255, 255]);
+}
+
+// 2026-11-17: Page.getLayoutMetrics reported the device pixel ratio as a phone's visual viewport scale; Chrome reports the page scale (390/980 without a viewport meta tag), so Playwright's clip takes the whole 980px layout at the screen's pixel size.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_screenshot_through_playwrights_clip_is_the_whole_layout_at_the_screen_size() {
+    let mut ctx = TestContext::new_with_layout_policy(moli_core::LayoutPolicy::Live);
+    install_active_screenshot_page(
+        &mut ctx,
+        "BID-VIEW-CAPTURE",
+        "TID-VIEW-CAPTURE",
+        SESSION,
+        &screenshot_data_url(
+            r#"<!doctype html><style>
+                html { background: blue; scrollbar-width: none }
+                body { margin: 0 }
+                #stripe { width: 490px; height: 100px; background: red }
+            </style><div id="stripe"></div>"#,
+        ),
+    )
+    .await;
+    set_metrics(
+        &mut ctx,
+        json!({"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": true}),
+    )
+    .await;
+
+    let (metrics, image) = playwright_viewport_screenshot(&mut ctx, (390.0, 844.0)).await;
+    // Chromium: scale 0.398, visual viewport 980 x 2120.8, layout viewport and
+    // content 980 x 2121.
+    for viewport in ["visualViewport", "cssVisualViewport"] {
+        let visual = &metrics[viewport];
+        let scale = visual["scale"].as_f64().unwrap_or_default();
+        assert!((scale - 390.0 / 980.0).abs() < 1e-6, "{metrics}");
+        assert_eq!(visual["clientWidth"], 980.0, "{metrics}");
+        let height = visual["clientHeight"].as_f64().unwrap_or_default();
+        assert!((height - 844.0 * 980.0 / 390.0).abs() < 1e-6, "{metrics}");
+    }
+    for layout in ["layoutViewport", "cssLayoutViewport"] {
+        assert_eq!(metrics[layout]["clientWidth"], 980, "{metrics}");
+        assert_eq!(metrics[layout]["clientHeight"], 2121, "{metrics}");
+    }
+    assert_eq!(metrics["cssContentSize"]["width"], 980.0, "{metrics}");
+    assert_eq!(metrics["cssContentSize"]["height"], 2121.0, "{metrics}");
+
+    // Chromium's PNG is 1170x2531: the 980x2120 clip at 3 * 390 / 980.
+    let (width, height) = png_size(&image);
+    assert!(
+        width.abs_diff(1170) <= 1 && height.abs_diff(2531) <= 2,
+        "screenshot {width}x{height}"
+    );
+    // The 490px stripe is half the layout: about 585 of the 1170 pixels.
+    assert_eq!(decode_png_pixel(&image, 500, 20), [255, 0, 0, 255]);
+    assert_eq!(decode_png_pixel(&image, 700, 20), [0, 0, 255, 255]);
+    assert_eq!(decode_png_pixel(&image, 500, 200), [0, 0, 255, 255]);
+}

@@ -1763,6 +1763,12 @@ pub struct DevToolsLayoutMetricsResult {
     pub content_width: f64,
     pub content_height: f64,
     pub device_pixel_ratio: f64,
+    /// pilot: the visual viewport's page scale (Chrome's `visualViewport.scale`):
+    /// 1 on a desktop at any device pixel ratio.
+    pub page_scale: f64,
+    /// pilot: the visual viewport's size in CSS pixels.
+    pub visual_viewport_width: f64,
+    pub visual_viewport_height: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

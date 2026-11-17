@@ -5943,7 +5943,9 @@ async fn playwright_over_cdp_context_profile_surfaces_permissions_tls_and_metric
         metrics["result"]["layoutViewport"]["clientHeight"],
         json!(720)
     );
-    assert_eq!(metrics["result"]["visualViewport"]["scale"], json!(2.0));
+    // pilot: the page scale, 1 on a desktop at any device pixel ratio, as in
+    // Chrome; this context's ratio is 2.
+    assert_eq!(metrics["result"]["visualViewport"]["scale"], json!(1.0));
 
     ctx.process_async(json!({
             "id": 239,

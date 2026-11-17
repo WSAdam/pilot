@@ -1246,7 +1246,9 @@ async fn get_layout_metrics_initializes_layout_and_reuses_content_until_capture(
     assert_eq!(live["result"]["layoutViewport"]["clientWidth"], 400);
     assert_eq!(live["result"]["layoutViewport"]["clientHeight"], 300);
     assert_eq!(live["result"]["visualViewport"]["pageY"], 100.0);
-    assert_eq!(live["result"]["visualViewport"]["scale"], 2.0);
+    // pilot: the visual viewport's scale is the page scale, which Chrome
+    // reports as 1 on a desktop at any device pixel ratio (DPR 2 here).
+    assert_eq!(live["result"]["visualViewport"]["scale"], 1.0);
     assert_eq!(live["result"]["contentSize"]["height"], 900.0);
     assert_eq!(live["result"]["contentSize"]["width"], 320.0);
     ctx.capture_fixture_layout(Some(session)).await;
@@ -1503,7 +1505,9 @@ async fn get_layout_metrics_targets_loaded_background_owner_without_activation()
     .await;
     let metrics = take_response_by_id(&mut ctx, 123);
     let result = &metrics["result"];
-    assert_eq!(result["visualViewport"]["scale"], json!(1.5));
+    // pilot: the page scale, 1 on a desktop at any device pixel ratio, as in
+    // Chrome; this page's ratio is 1.5.
+    assert_eq!(result["visualViewport"]["scale"], json!(1.0));
     assert_eq!(
         result["contentSize"],
         json!({ "x": 0, "y": 0, "width": 2300.0, "height": 1700.0 }),
@@ -1556,7 +1560,9 @@ async fn get_layout_metrics_targets_inactive_loaded_owner_without_activation() {
     .await;
     let metrics = take_response_by_id(&mut ctx, 124);
     let result = &metrics["result"];
-    assert_eq!(result["visualViewport"]["scale"], json!(2.0));
+    // pilot: the page scale, 1 on a desktop at any device pixel ratio, as in
+    // Chrome; this page's ratio is 2.
+    assert_eq!(result["visualViewport"]["scale"], json!(1.0));
     assert_eq!(
         result["contentSize"],
         json!({ "x": 0, "y": 0, "width": 2100.0, "height": 1600.0 }),

@@ -6017,6 +6017,14 @@ pub struct RendererLayoutMetrics {
     pub content_width: f64,
     pub content_height: f64,
     pub device_pixel_ratio: f64,
+    /// pilot: the visual viewport's page scale, which Chrome reports as its
+    /// `scale`: 1 on a desktop at any device pixel ratio, and the scale a
+    /// phone shows its layout at (390/980 for a page without a viewport meta
+    /// tag on a 390px phone).
+    pub page_scale: f64,
+    /// pilot: the visual viewport's size in CSS pixels.
+    pub visual_viewport_width: f64,
+    pub visual_viewport_height: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

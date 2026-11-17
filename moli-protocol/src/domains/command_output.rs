@@ -1859,14 +1859,17 @@ fn cdp_result_payload_from_devtools_result(result: AutomationResult) -> Value {
                 "clientWidth": result.layout_viewport_width,
                 "clientHeight": result.layout_viewport_height,
             });
+            // pilot: Chrome's visual viewport: its size in CSS pixels and the
+            // page scale, not the device pixel ratio. Playwright builds
+            // page.screenshot()'s clip from these.
             let visual = json!({
                 "offsetX": 0,
                 "offsetY": 0,
                 "pageX": result.page_x,
                 "pageY": result.page_y,
-                "clientWidth": result.layout_viewport_width,
-                "clientHeight": result.layout_viewport_height,
-                "scale": result.device_pixel_ratio,
+                "clientWidth": result.visual_viewport_width,
+                "clientHeight": result.visual_viewport_height,
+                "scale": result.page_scale,
                 "zoom": 1,
             });
             let content = json!({
