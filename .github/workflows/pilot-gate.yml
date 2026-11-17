@@ -85,7 +85,8 @@ jobs:
 
       - name: The test under load in gdb
         run: |
-          set -uo pipefail
+          set +e
+          set -u
           name=runtime::page_vm::tests::worker::worker_messages_and_service_workers::child_message_handler_external_dedicated_worker_binds_child_client_event_owner
           for i in $(seq 1 8); do yes > /dev/null & done
           crashed=0
@@ -100,6 +101,7 @@ jobs:
               echo "❌ run $run crashed after ${took}s"; cat "gdb-$run.log" | cut -c1-300 | tail -150; crashed=1; break
             fi
             echo "✅ run $run: $(grep -o 'test result: [a-z]*' "gdb-$run.log" | head -1) in ${took}s"
+            if [ "$run" = 1 ]; then echo "--- run 1 log tail ---"; tail -30 "gdb-$run.log" | cut -c1-300; fi
           done
           kill $(jobs -p) 2>/dev/null || true
           exit $crashed
