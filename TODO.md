@@ -171,3 +171,4 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] pilot-mcp command: no arguments serves MCP on stdio, `replay <task> --input k=v [--allow-writes]` replays from a fresh profile and prints JSON (exit 0/1), `list` names the recorded tasks (pilot/mcp/src/main.ts)
 - [x] pilot-mcp tests run in the GitHub gate's macOS job against the freshly built pilot (.github/workflows/pilot-gate.yml step "pilot-mcp") (needs live run)
 - [ ] Record→replay on a real site: record a read-only task and a form submit with pilot-mcp, then replay both from cron with the CLI (needs live run)
+- [ ] A page-started navigation (location.href, history.back()) from a page that cancels beforeunload opens a beforeunload dialog too; Build 3b covers only Playwright-started goto, reload, goBack and goForward
