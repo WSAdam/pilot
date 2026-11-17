@@ -754,6 +754,455 @@ async fn websocket_cdp_page_navigate_runs_beforeunload_without_dialog_before_use
     protocol_server.abort();
 }
 
+/// Serves `/guard`, which cancels beforeunload the way Playwright's fixtures do
+/// and logs each run, with a link to `/second`; `/first` and `/second` are
+/// plain pages to leave it for.
+fn spawn_page_started_beforeunload_fixture() -> (std::net::SocketAddr, DedicatedFixtureServer) {
+    async fn guard() -> impl IntoResponse {
+        (
+            [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
+            "<!doctype html><title>guard</title><a id=leave href=/second>leave</a><script>addEventListener('beforeunload', event => { console.log('moli beforeunload'); event.preventDefault(); event.returnValue = ''; })</script>",
+        )
+    }
+    async fn first() -> impl IntoResponse {
+        (
+            [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
+            "<!doctype html><title>first</title><main>first</main>",
+        )
+    }
+    async fn second() -> impl IntoResponse {
+        (
+            [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
+            "<!doctype html><title>second</title><main>second</main>",
+        )
+    }
+    spawn_dedicated_fixture_server(
+        Router::new()
+            .route("/guard", get(guard))
+            .route("/first", get(first))
+            .route("/second", get(second)),
+        "page-started-beforeunload",
+    )
+}
+
+fn is_beforeunload_console_message(message: &serde_json::Value, session_id: &str) -> bool {
+    is_session_event(message, session_id, "Runtime.consoleAPICalled")
+        && message["params"]["args"][0]["value"] == json!("moli beforeunload")
+}
+
+// 2026-11-17: a navigation the page starts itself never ran beforeunload, so
+// setting location.href on a page that cancels it, after a user gesture,
+// opened no beforeunload dialog and left the page.
+#[tokio::test]
+async fn websocket_cdp_location_href_beforeunload_dialog_dismissed_keeps_the_page() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &guard_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.href = {}; 'after the setter'", json!(second_url)),
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert_eq!(opening["params"]["message"], json!(""), "{observed:#?}");
+    assert!(
+        !observed.iter().any(|message| message["id"] == json!(7_u64)),
+        "like Chrome, the beforeunload dialog blocks the script that set location.href: {observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    let evaluate = observed
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Runtime.evaluate response");
+    assert_eq!(
+        evaluate["result"]["result"]["value"],
+        json!("after the setter"),
+        "{observed:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(
+            &mut socket,
+            &session_id,
+            9,
+            "`${document.title} ${location.href}`"
+        )
+        .await,
+        format!("guard {guard_url}"),
+        "dismissing the beforeunload dialog keeps the page and its URL"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: a navigation the page starts itself never ran beforeunload, so
+// history.back() from a page that cancels it, after a user gesture, opened no
+// beforeunload dialog.
+#[tokio::test]
+async fn websocket_cdp_history_back_beforeunload_dialog_accepted_leaves_the_page() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let first_url = format!("http://{fixture_addr}/first");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &first_url).await;
+    cdp_navigate_and_wait_for_load(&mut socket, 6, &session_id, &guard_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": "history.back(); 'queued'",
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert_eq!(opening["params"]["message"], json!(""), "{observed:#?}");
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": true }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    let evaluate = observed
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Runtime.evaluate response");
+    assert_eq!(
+        evaluate["result"]["result"]["value"],
+        json!("queued"),
+        "{observed:#?}"
+    );
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &session_id, "Page.loadEventFired"))
+    {
+        recv_until_match(&mut socket, |message| {
+            is_session_event(message, &session_id, "Page.loadEventFired")
+        })
+        .await;
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 9, "document.title").await,
+        "first",
+        "accepting the beforeunload dialog lets history.back() leave the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: a navigation the page starts itself never ran beforeunload.
+// Without sticky activation a canceled beforeunload opens no dialog and the
+// location.href navigation goes on.
+#[tokio::test]
+async fn websocket_cdp_location_href_runs_beforeunload_without_dialog_before_user_gesture() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &guard_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.href = {}; 'navigating'", json!(second_url)),
+            "returnByValue": true
+        }),
+    )
+    .await;
+    let mut messages = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.loadEventFired")
+    })
+    .await;
+    if !messages.iter().any(|message| message["id"] == json!(7_u64)) {
+        messages
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    assert!(
+        messages
+            .iter()
+            .any(|message| is_beforeunload_console_message(message, &session_id)),
+        "location.href must run beforeunload in the page it leaves: {messages:#?}"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == json!("Page.javascriptDialogOpening")),
+        "no beforeunload dialog without sticky activation: {messages:#?}"
+    );
+    let evaluate = messages
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Runtime.evaluate response");
+    assert_eq!(
+        evaluate["result"]["result"]["value"],
+        json!("navigating"),
+        "{messages:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 8, "document.title").await,
+        "second",
+        "the navigation must go on"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: a navigation the page starts itself never ran beforeunload. A
+// fragment navigation or pushState keeps the Document, so it still runs none,
+// while leaving the same page asks once.
+#[tokio::test]
+async fn websocket_cdp_fragment_navigation_from_canceling_page_runs_no_beforeunload() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &guard_url).await;
+
+    let mut same_document = send_cdp_command(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": "location.href = '#section'; location.hash = 'again'; history.pushState(null, '', '#pushed'); location.hash",
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let evaluate = same_document
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Runtime.evaluate response")
+        .clone();
+    assert_eq!(
+        evaluate["result"]["result"]["value"],
+        json!("#pushed"),
+        "{same_document:#?}"
+    );
+    same_document.extend(recv_cdp_messages_for(&mut socket, Duration::from_millis(300)).await);
+    assert!(
+        !same_document.iter().any(|message| {
+            message["method"] == json!("Page.javascriptDialogOpening")
+                || is_beforeunload_console_message(message, &session_id)
+        }),
+        "a fragment navigation keeps the Document and runs no beforeunload: {same_document:#?}"
+    );
+
+    // The page does cancel beforeunload and has sticky activation, so leaving
+    // it from the same Document asks.
+    send_cdp_command_without_wait(
+        &mut socket,
+        8,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.assign({}); 'assigned'", json!(second_url)),
+            "returnByValue": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            9,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": true }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(8_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(8_u64)).await);
+    }
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &session_id, "Page.loadEventFired"))
+    {
+        observed.extend(
+            recv_until_match(&mut socket, |message| {
+                is_session_event(message, &session_id, "Page.loadEventFired")
+            })
+            .await,
+        );
+    }
+    assert_eq!(
+        observed
+            .iter()
+            .filter(|message| is_beforeunload_console_message(message, &session_id))
+            .count(),
+        1,
+        "leaving the page runs beforeunload once: {observed:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 10, "document.title").await,
+        "second",
+        "accepting the beforeunload dialog lets location.assign leave the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: a navigation the page starts itself never ran beforeunload, so
+// following a link from a page that cancels it, after a user gesture, opened
+// no beforeunload dialog and left the page.
+#[tokio::test]
+async fn websocket_cdp_link_click_beforeunload_dialog_dismissed_keeps_the_page() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &guard_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": "document.getElementById('leave').click(); 'clicked'",
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(
+            &mut socket,
+            &session_id,
+            9,
+            "`${document.title} ${location.href}`"
+        )
+        .await,
+        format!("guard {guard_url}"),
+        "dismissing the beforeunload dialog keeps the page the link would leave"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 #[tokio::test]
 async fn websocket_cdp_lifecycle_events_include_load_marker() {
     async fn page() -> impl IntoResponse {

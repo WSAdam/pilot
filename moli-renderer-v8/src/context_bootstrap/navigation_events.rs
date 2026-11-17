@@ -657,7 +657,27 @@ fn dispatch_cancelable_beforeunload_for_runtime_owner<'s>(
 /// Document has sticky activation. Returns whether the navigation may go on.
 pub(crate) fn run_top_level_beforeunload(scope: &mut v8::PinScope<'_, '_>) -> bool {
     let owner = scope.get_current_context().global(scope);
-    if !dispatch_cancelable_beforeunload_for_runtime_owner(scope, owner) {
+    prompt_to_unload_top_level_document(scope, owner)
+}
+
+/// Chrome's "prompt to unload" for the top-level Document, at `top_window`.
+///
+/// A navigation the page starts itself (a Location setter or method, a
+/// hyperlink, a form submission, a cross-document `history` traversal) runs
+/// it synchronously before the navigation is recorded, as Chrome's renderer
+/// does before it begins one: the `beforeunload` dialog then blocks the
+/// script that started the navigation, like `confirm()`. A navigation started
+/// from inside an unload event of this Document is dropped, as Chrome drops
+/// navigations during page dismissal. Returns whether the navigation may go
+/// on.
+pub(crate) fn prompt_to_unload_top_level_document<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    top_window: v8::Local<'s, v8::Object>,
+) -> bool {
+    if super::navigation_window::navigation_unload_event_active(scope, top_window) {
+        return false;
+    }
+    if !dispatch_cancelable_beforeunload_for_runtime_owner(scope, top_window) {
         return true;
     }
     super::window_runtime::confirm_top_level_beforeunload(scope)

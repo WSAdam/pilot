@@ -83,14 +83,22 @@ fn navigate_target_window_location(
         .unwrap_or(false)
 }
 
-fn queue_top_level_location_navigation(
-    _scope: &mut v8::PinScope<'_, '_>,
+fn queue_top_level_location_navigation<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
     runtime_ptr: *mut JsContextHost,
+    top_window: v8::Local<'s, v8::Object>,
     resolved_url: &str,
 ) -> bool {
     let Ok(url) = url::Url::parse(resolved_url) else {
         return false;
     };
+    // A hyperlink that leaves the top-level Document first prompts to unload
+    // it, as Chrome does; staying keeps the Document and drops the navigation.
+    if url.scheme() != "javascript"
+        && !crate::context_bootstrap::prompt_to_unload_top_level_document(scope, top_window)
+    {
+        return true;
+    }
     unsafe { &mut *runtime_ptr }.record_pending_location_navigation(url, None);
     true
 }
@@ -727,7 +735,12 @@ pub(in crate::native_bridge) fn navigate_hyperlink_target_browsing_context<'s>(
         ) {
             return true;
         }
-        return queue_top_level_location_navigation(scope, runtime_ptr, resolved_url);
+        return queue_top_level_location_navigation(
+            scope,
+            runtime_ptr,
+            target_window,
+            resolved_url,
+        );
     }
     navigate_target_window_location(scope, target_window, resolved_url)
 }

@@ -658,6 +658,16 @@ fn navigate_location_object_with_source_element_and_child_navigate_event<'s>(
         return;
     }
 
+    // The navigation leaves the top-level Document, so like Chrome's renderer
+    // it first prompts to unload it, before Location or history change. A
+    // javascript: URL runs in the Document instead of leaving it.
+    if resolved.scheme() != "javascript"
+        && runtime_window_is_global(scope, owner)
+        && !super::navigation_events::prompt_to_unload_top_level_document(scope, owner)
+    {
+        return;
+    }
+
     if resolved.scheme() != "javascript" {
         sync_location_object(scope, location, resolved.as_str());
     }

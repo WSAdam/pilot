@@ -1064,6 +1064,11 @@ fn submit_post_form_to_top_level_browsing_context(
     ) {
         return true;
     }
+    // A form submission that leaves the top-level Document first prompts to
+    // unload it, as Chrome does; staying drops the submission.
+    if !crate::context_bootstrap::prompt_to_unload_top_level_document(scope, window) {
+        return true;
+    }
     unsafe { &mut *runtime_ptr }.record_pending_location_navigation_request(
         resolved_url,
         "POST".to_owned(),

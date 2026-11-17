@@ -150,6 +150,11 @@ pub(super) fn queue_history_traversal_without_result<'s>(
             else {
                 return;
             };
+            // The traversal leaves the top-level Document, which first
+            // prompts to unload it, as Chrome does.
+            if !super::navigation_events::prompt_to_unload_top_level_document(scope, target.owner) {
+                return;
+            }
             host.record_pending_top_level_history_traversal(delta);
             return;
         }

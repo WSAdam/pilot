@@ -2395,6 +2395,13 @@ pub(in crate::native_bridge) fn navigate_form_target_browsing_context(
         let Ok(url) = url::Url::parse(resolved_url) else {
             return false;
         };
+        // A form submission that leaves the top-level Document first prompts
+        // to unload it, as Chrome does; staying drops the submission.
+        if url.scheme() != "javascript"
+            && !crate::context_bootstrap::prompt_to_unload_top_level_document(scope, window)
+        {
+            return true;
+        }
         unsafe { &mut *runtime_ptr }.record_pending_location_navigation(url, None);
         crate::context_bootstrap::web_mcp::bind_root_navigation(
             unsafe { &mut *runtime_ptr },

@@ -31,8 +31,8 @@ use super::navigation_result::{
 };
 use super::navigation_traversal_execution::queue_navigation_traversal_with_result;
 use super::navigation_traversal_plan::{
-    NavigationTraversalPlan, history_delta_traversal_plan, navigation_delta_traversal_plan,
-    navigation_index_traversal_plan,
+    NavigationTraversalPlan, history_delta_has_session_history_step, history_delta_traversal_plan,
+    navigation_delta_traversal_plan, navigation_index_traversal_plan,
 };
 use super::navigation_window::{
     navigation_document_can_update_current_entry, navigation_document_is_active,
@@ -546,6 +546,15 @@ fn queue_browser_owned_top_level_history_traversal<'s>(
             source_handle,
             top_owner,
         )
+    {
+        return;
+    }
+    // The renderer has no plan for this step, so it is not one of the
+    // Document's own same-document entries: unless it is out of range, the
+    // browser's traversal leaves the top-level Document, which first prompts
+    // to unload it, as Chrome does.
+    if history_delta_has_session_history_step(scope, history, delta)
+        && !super::navigation_events::prompt_to_unload_top_level_document(scope, top_owner)
     {
         return;
     }
