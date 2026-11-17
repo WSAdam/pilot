@@ -557,3 +557,88 @@ document.body.innerHTML = `<select id=multi multiple>${options}</select><select 
     .await
     .expect("listbox option geometry fixture should run");
 }
+
+// 2026-11-17: a listbox row named its <option> only as a geometry and hit source, never as the option's principal box, so offsetWidth/offsetHeight/offsetTop/offsetParent found no box and read 0 and null.
+#[tokio::test(flavor = "current_thread")]
+async fn listbox_option_offset_metrics_follow_its_row() {
+    run_page_vm_async_test(async move {
+        let loader =
+            crate::network::ResourceRequestClient::new(&FetchConfig::default()).expect("loader");
+        let mut page_vm = test_page_vm_with_loader_and_document_url(
+            &loader,
+            Vec::new(),
+            Url::parse("https://example.com/select-listbox-offsets.html")?,
+        );
+        page_vm.vm_mut().eval(
+            r#"
+document.head.innerHTML = `<style>
+html,body{margin:0;padding:0;background:white}
+#spacer{height:30px}
+select{display:block;width:140px;height:90px;box-sizing:border-box;
+       margin:0;padding:0;border:1px solid black;font:16px/20px sans-serif}
+#single{height:22px}
+</style>`;
+const options = `<option value=a>Alpha</option><option value=b>Beta</option><option value=c>Gamma</option>`;
+document.body.innerHTML = `<div id=spacer></div><select id=multi multiple>${options}</select><select id=single>${options}</select>`;
+'installed'
+"#,
+        )?;
+        page_vm.vm_mut().sync_live_document_style_sources();
+        let viewport = moli_layout::PaintViewport::new(400, 200, 1.0);
+        page_vm
+            .vm_mut()
+            .screenshot_layout_snapshot(viewport)?
+            .expect("select fixture must retain a layout root");
+        // [offsetLeft, offsetTop, offsetWidth, offsetHeight, rect x, y, width, height]
+        let rows: Vec<[f64; 8]> = serde_json::from_str(&page_vm.vm_mut().eval(
+            "JSON.stringify([...document.getElementById('multi').options].map(o => { const r = o.getBoundingClientRect(); return [o.offsetLeft, o.offsetTop, o.offsetWidth, o.offsetHeight, r.x, r.y, r.width, r.height]; }))",
+        )?)?;
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            page_vm
+                .vm_mut()
+                .eval("String(document.getElementById('multi').offsetTop)")?,
+            "30",
+            "the listbox sits below the spacer"
+        );
+        let select_top = 30.0;
+        for (index, row) in rows.iter().copied().enumerate() {
+            let [left, top, width, height, rect_x, rect_y, rect_width, rect_height] = row;
+            assert!(width > 0.0 && height > 0.0, "option {index} has an offset size: {rows:?}");
+            assert!(top >= select_top, "option {index} sits inside the listbox: {rows:?}");
+            // The body is the static offsetParent and nothing scrolls or
+            // transforms, so offset geometry is the row's client rect rounded.
+            for (metric, offset, rect) in [
+                ("left", left, rect_x),
+                ("top", top, rect_y),
+                ("width", width, rect_width),
+                ("height", height, rect_height),
+            ] {
+                assert!(
+                    (offset - rect).abs() <= 1.0,
+                    "option {index} offset {metric} follows its row: {rows:?}"
+                );
+            }
+            if index > 0 {
+                assert!(top > rows[index - 1][1], "option {index} sits below the row before it: {rows:?}");
+            }
+        }
+        assert_eq!(
+            page_vm.vm_mut().eval(
+                "[...document.getElementById('multi').options].every(o => o.offsetParent === document.body)",
+            )?,
+            "true",
+            "a listbox option's offsetParent is the body, as for any static block"
+        );
+        assert_eq!(
+            page_vm.vm_mut().eval(
+                "JSON.stringify([...document.getElementById('single').options].map(o => [o.offsetWidth, o.offsetHeight]))",
+            )?,
+            "[[0,0],[0,0],[0,0]]",
+            "a dropdown's options stay box-less"
+        );
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .expect("listbox option offset fixture should run");
+}

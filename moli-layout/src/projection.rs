@@ -256,6 +256,17 @@ where
         for (source, box_id) in &world.source_mapping {
             principal_sources[box_id.index()] = Some(*source);
         }
+        // pilot: a listbox row's wrapper is also its <option>'s principal box.
+        // The option builds no box of its own (the select is a replaced
+        // control), so offset metrics, used sizes and ResizeObserver read the
+        // row, as in Chrome, where each listbox option is a laid-out block.
+        for (index, layout_box) in world.boxes.iter().enumerate() {
+            if let Some(option) = layout_box.form_option_source
+                && !world.source_mapping.contains_key(&option)
+            {
+                principal_sources[index] = Some(option);
+            }
+        }
         let scroll_proxy_links = world
             .display_contents_mapping
             .iter()

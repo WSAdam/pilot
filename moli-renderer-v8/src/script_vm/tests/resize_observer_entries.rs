@@ -138,3 +138,39 @@ fn real_ro_css_box_projection_excludes_non_replaced_inline_fragments() {
     );
     assert_eq!(vm.layout_pass_observability_for_test().1, builds);
 }
+
+// 2026-11-17: a listbox row named its <option> only as a geometry and hit source, never as the option's principal box, so ResizeObserver found no CSS box for the option and reported a 0x0 contentRect.
+#[test]
+fn listbox_option_resize_observer_reports_its_row() {
+    let mut vm = new_storage_html_test_vm("https://resize-listbox-option.test/");
+    vm.set_layout_policy(moli_page_types::LayoutPolicy::OnDemand);
+    vm.eval(r#"
+        document.body.innerHTML='<select id=list multiple size=3 style="display:block;width:140px;margin:0;padding:0;border:1px solid;font:16px/20px sans-serif"><option>Foo</option><option>Bar</option><option>Baz</option></select>';
+        window.samples=[];
+    "#).unwrap();
+    refresh_layout_for_test(&mut vm);
+    vm.eval(
+        r#"
+        window.observer=new ResizeObserver(entries=>samples.push(...entries.map(e=>[
+            e.contentRect.width,e.contentRect.height,
+            e.contentBoxSize[0].blockSize,e.borderBoxSize[0].blockSize
+        ])));
+        for (const option of document.getElementById('list').options) observer.observe(option);
+    "#,
+    )
+    .unwrap();
+    let samples: Vec<[f64; 4]> =
+        serde_json::from_str(&vm.eval("JSON.stringify(samples)").unwrap()).unwrap();
+    assert_eq!(
+        samples.len(),
+        3,
+        "each listbox option is observed: {samples:?}"
+    );
+    for (index, [width, height, content_block, border_block]) in samples.iter().copied().enumerate()
+    {
+        assert!(
+            width > 0.0 && height > 0.0 && content_block > 0.0 && border_block > 0.0,
+            "option {index} reports its row's CSS box: {samples:?}"
+        );
+    }
+}
