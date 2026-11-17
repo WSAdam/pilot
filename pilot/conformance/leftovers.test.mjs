@@ -136,3 +136,23 @@ test('an inserted script that throws reports a page error and the insert returns
     await page.waitForTimeout(300);
     assert.deepEqual(errors, ['from an inserted script']);
   }));
+
+// 2026-11-17: pilot's beforeunload was a plain Event, so the legacy ways to
+// ask before leaving did not cancel it: an onbeforeunload handler returning a
+// string, and a listener setting returnValue to a non-empty string. Chrome
+// treats both as a request to confirm (BeforeUnloadEvent) and opens the dialog.
+for (const style of ['return', 'returnValue']) {
+  test(`a beforeunload ${style === 'return' ? 'handler that returns a string' : 'listener that sets returnValue'} opens the dialog`, { timeout: 60_000 }, () =>
+    withPage(async (page) => {
+      await page.goto(`${fixture.baseUrl}/greeting.html`);
+      await page.goto(`${fixture.baseUrl}/leave-guard-legacy.html?style=${style}`);
+      await page.click('#touch');
+      const dialog = page.waitForEvent('dialog', { timeout: 5_000 });
+      const back = page.goBack().catch(() => {});
+      const opened = await dialog;
+      assert.equal(opened.type(), 'beforeunload');
+      await opened.accept();
+      await back;
+      assert.equal(await page.title(), 'pilot conformance');
+    }));
+}
