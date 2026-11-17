@@ -2005,16 +2005,64 @@ fn execute_committed_inline_classic_script(
     ) else {
         return;
     };
-    let Some(source) = v8::String::new(scope, &source) else {
-        return;
-    };
-    let Some(script) = v8::Script::compile(scope, source, None) else {
+    // pilot: the script runs inside the DOM call that inserted it, but its
+    // exception, a parse error included, is reported as uncaught (HTML's
+    // "report the exception": the window `error` event, then the developer
+    // console) while it is still the current script, and never reaches the
+    // inserting code, as in Chrome. Without this TryCatch the exception was
+    // left pending in the insertion callback and lost before the insertion
+    // returned: no error event, no Runtime.exceptionThrown, no pageerror.
+    let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
+    let mut scope = try_catch.init();
+    let Some(source) = v8::String::new(&scope, &source) else {
         return;
     };
     unsafe { &mut *host_ptr }.push_current_inline_script(node);
-    let run_result = crate::script_execution::execute_compiled_script(scope, script);
+    let compiled = v8::Script::compile(&scope, source, None);
+    let ran = compiled
+        .and_then(|script| crate::script_execution::execute_compiled_script(&mut scope, script))
+        .is_some();
+    if !ran {
+        if scope.is_execution_terminating() {
+            // Termination keeps unwinding through the inserting code.
+            let _ = scope.rethrow();
+        } else if scope.has_caught() {
+            let exception = scope.exception();
+            let message = scope.message();
+            let report = if compiled.is_some() {
+                let stack_trace = scope.stack_trace();
+                crate::exception_reporting::build_event_handler_exception_report(
+                    &mut scope,
+                    exception,
+                    message,
+                    stack_trace,
+                )
+            } else {
+                // A parse error is reported without running an author's
+                // Error.prepareStackTrace hook, as for event handler attributes.
+                crate::exception_reporting::build_exception_report_without_stack(
+                    &mut scope, exception, message,
+                )
+            };
+            scope.reset();
+            crate::exception_reporting::log_uncaught_script_exception(&report);
+            let error_value = report
+                .exception
+                .as_ref()
+                .map(|exception| v8::Local::new(&scope, exception));
+            let _ = crate::context_bootstrap::dispatch_window_error_event_with_details(
+                &mut scope,
+                host_ptr,
+                &report.summary,
+                report.source.as_deref().unwrap_or(""),
+                report.line.unwrap_or(0) as u32,
+                report.column.unwrap_or(0) as u32,
+                error_value,
+            );
+        }
+    }
     unsafe { &mut *host_ptr }.pop_current_inline_script(node);
-    if run_result.is_some() {
+    if ran {
         let _ = runtime.enqueue_script_event_lifecycle_work(
             crate::host::ScriptEventKind::Load,
             &host_script_handle,
