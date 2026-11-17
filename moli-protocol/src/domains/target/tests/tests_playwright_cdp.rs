@@ -389,14 +389,28 @@ async fn wait_for_playwright_child_frame_navigation(
     child_frame_id: &str,
     expected_url: &str,
 ) {
-    crate::testing::wait_until_message(
+    // 2026-11-17 (pilot): a child frame's frameNavigated now goes out when its
+    // Document commits, before that Document's realm exists, as in Chrome. So
+    // the wait also covers the new Document's default context, created after
+    // the commit; before, both arrived together at load finish.
+    crate::testing::wait_until_messages(
         ctx,
         Some(session_id),
-        "child frame navigated before playwright-style body evaluation",
-        |message| {
-            message["method"] == json!("Page.frameNavigated")
-                && message["params"]["frame"]["id"] == json!(child_frame_id)
-                && message["params"]["frame"]["url"] == json!(expected_url)
+        "child frame navigated and its new default context created before playwright-style body evaluation",
+        |messages| {
+            let Some(navigated_index) = messages.iter().position(|message| {
+                message["method"] == json!("Page.frameNavigated")
+                    && message["params"]["frame"]["id"] == json!(child_frame_id)
+                    && message["params"]["frame"]["url"] == json!(expected_url)
+            }) else {
+                return false;
+            };
+            messages[navigated_index + 1..].iter().any(|message| {
+                message["sessionId"] == json!(session_id)
+                    && message["method"] == json!("Runtime.executionContextCreated")
+                    && message["params"]["context"]["auxData"]["isDefault"] == json!(true)
+                    && message["params"]["context"]["auxData"]["frameId"] == json!(child_frame_id)
+            })
         },
     )
     .await;
