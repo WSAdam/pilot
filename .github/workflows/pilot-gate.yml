@@ -1,19 +1,13 @@
 name: pilot gate
 
-# pilot's build gate, run on GitHub's machines instead of the developer's Mac:
-# one rustc of moli-renderer-v8 (a single 1.35M-line crate) peaks at 6-7 GB.
-# Work is pushed to a gate/<label> branch; main is fast-forwarded to it only when
-# both jobs pass. The MCP and open-web sweeps run locally on the macOS binary this
-# uploads, because their timings and bot-wall results depend on the Mac and its IP.
+# DIAGNOSIS BRANCH ONLY (gate/diag-b8-stack), never merged: Build 8's first gate
+# run (44155204410) overflowed the stack in one upstream worker test. Each leg
+# checks out one Build 8 commit and runs only that test, with the default test
+# thread stack and then with a 64 MiB one, to find the commit and tell real
+# recursion from deeper frames.
 on:
   push:
-    branches: ["gate/**"]
-  workflow_dispatch:
-    inputs:
-      macos_only:
-        description: Skip Linux and run only the macOS job (diagnosis rounds; landing needs a full run)
-        type: boolean
-        default: false
+    branches: ["gate/diag-**"]
 
 concurrency:
   group: pilot-gate-${{ github.ref }}
@@ -28,38 +22,43 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   TZ: UTC
+  TEST_FILTER: test(=runtime::page_vm::tests::worker::worker_messages_and_service_workers::child_message_handler_external_dedicated_worker_binds_child_client_event_owner)
 
 jobs:
-  linux:
-    name: Linux - fmt, clippy, nextest, release, CDP smoke
-    # gate/mac-<label> branches run only the macOS job (diagnosis rounds).
-    if: ${{ !inputs.macos_only && !startsWith(github.ref_name, 'gate/mac-') }}
+  leg:
+    name: ${{ matrix.label }}
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: "1 inserted-script 0e2244b3e", sha: 0e2244b3e93f6d211dccd829d8b13ae0c9f7e0e0 }
+          - { label: "2 file-url 5787187c3", sha: 5787187c3b1c713a4d7e53e9ff8e65945193951b }
+          - { label: "3 page-started-beforeunload 2c6fa11d3", sha: 2c6fa11d33914fec8c6d10a1f8ca2fa4eda5400e }
+          - { label: "4 meta-viewport 53774ad2e", sha: 53774ad2ef3b2659e32f94fa340858217352dcf1 }
+          - { label: "5 beforeunload-event 604366129", sha: 6043661291c0650304dc5fe4713665d555f0ccc9 }
+          - { label: "6 layout-metrics f62e7ba6c", sha: f62e7ba6cda3f4c9b42d0bab3df30917dbe24c56 }
     env:
-      # 16 GB runner: two renderer rustc processes at once still fit, with swap as a margin.
       CARGO_BUILD_JOBS: "2"
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ matrix.sha }}
 
       - name: Free disk and add swap
         run: |
           set -euo pipefail
-          echo "🔍 before"; df -h /; free -h
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           if mountpoint -q /mnt; then swapfile=/mnt/pilot-swap; else swapfile=/pilot-swap; fi
           sudo fallocate -l 8G "$swapfile"
           sudo chmod 600 "$swapfile"
           sudo mkswap "$swapfile" >/dev/null
           sudo swapon "$swapfile"
-          echo "✅ after"; df -h /; free -h
 
       - name: Install build dependencies
-        # Upstream's CI builds inside rust:bookworm, which ships these; the bare Ubuntu
-        # runner does not. fontconfig (moli-system-fonts) failed the first gate run.
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -71,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           toolchain=$(tr -d '[:space:]' < rust-toolchain)
-          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --no-self-update
+          rustup toolchain install "$toolchain" --profile minimal --no-self-update
           rustc --version
 
       - name: Install cargo-nextest
@@ -79,121 +78,14 @@ jobs:
         with:
           tool: nextest@0.9.132
 
-      - name: fmt
-        run: cargo fmt --all --check
+      - name: Build the renderer tests
+        run: cargo nextest run -p moli-renderer-v8 --no-run
 
-      - name: clippy
-        run: /usr/bin/time -v cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: The test, default stack
+        run: cargo nextest run -p moli-renderer-v8 --retries 0 --no-capture -E "$TEST_FILTER"
 
-      - name: nextest
-        run: /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
-
-      - name: nextest (moli fetch CLI, one test at a time)
-        # These tests give a whole debug-binary fetch 350 ms. Alongside 4 parallel
-        # tests on the shared runner, the page hadn't loaded by then (gate run 2).
-        run: cargo nextest run --workspace --profile ci -E 'binary(fetch_cli)' --test-threads 1
-
-      - name: Release build
+      - name: The test, 64 MiB stack
+        if: always()
         env:
-          # LLVM optimizes the renderer in 16 pieces instead of Cargo.toml's one module.
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: /usr/bin/time -v cargo build --release -p moli -p pilot
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: 0.11.14
-          python-version: "3.12"
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24.15.0
-
-      - name: CDP smoke
-        run: |
-          set -euo pipefail
-          uv sync --project moli-cdp-smoke --locked
-          npm ci --prefix moli-cdp-smoke
-          MOLI_BIN="$PWD/target/release/moli" uv run --project moli-cdp-smoke --no-sync moli-cdp-smoke \
-            --browser moli --strict-full-suite --jobs 2 --output-dir target/smoke/cdp
-
-      - name: Upload smoke report
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: smoke-report
-          path: target/smoke/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  macos:
-    name: macOS - release build, conformance
-    # GitHub's macOS arm64 machines are scarce ("not acquired by Runner" on gate
-    # run 2), so this runs only after Linux passes, and alone it can be re-run
-    # with `gh run rerun <run-id> --failed`.
-    needs: linux
-    if: ${{ !cancelled() && (needs.linux.result == 'success' || inputs.macos_only || startsWith(github.ref_name, 'gate/mac-')) }}
-    runs-on: macos-15
-    timeout-minutes: 240
-    env:
-      # 7 GB runner: one renderer rustc at a time.
-      CARGO_BUILD_JOBS: "1"
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install pinned Rust toolchain
-        run: |
-          set -euo pipefail
-          toolchain=$(tr -d '[:space:]' < rust-toolchain)
-          rustup toolchain install "$toolchain" --profile minimal --no-self-update
-          rustc --version
-
-      - name: Release build
-        env:
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: /usr/bin/time -l cargo build --release -p moli -p pilot
-
-      # Uploaded before conformance, so a failing test still leaves a binary to
-      # debug on the Mac without compiling there.
-      - name: Package macOS binaries
-        run: tar -C target/release -czf pilot-macos-aarch64.tar.gz pilot moli
-
-      - name: Upload macOS binaries
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pilot-macos-aarch64
-          path: pilot-macos-aarch64.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24.15.0
-
-      - name: Conformance
-        working-directory: pilot/conformance
-        env:
-          PILOT_BIN: ${{ github.workspace }}/target/release/pilot
-        run: |
-          set -euo pipefail
-          npm ci
-          node --test --test-concurrency=1 --test-reporter=spec
-
-      # Record→replay (docs/record-replay.md): unit tests plus record-and-replay
-      # runs against the pilot built above. Node 24 runs the TypeScript directly.
-      - name: pilot-mcp
-        working-directory: pilot/mcp
-        env:
-          PILOT_BIN: ${{ github.workspace }}/target/release/pilot
-        run: |
-          set -euo pipefail
-          npm ci
-          npx tsc --noEmit -p .
-          npm test
+          RUST_MIN_STACK: "67108864"
+        run: cargo nextest run -p moli-renderer-v8 --retries 0 --no-capture -E "$TEST_FILTER"
