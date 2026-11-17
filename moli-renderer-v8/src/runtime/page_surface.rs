@@ -1518,6 +1518,20 @@ impl RendererCommandTurnOutputRecorder {
         );
     }
 
+    pub(crate) fn push_child_frame_commit(
+        &self,
+        source_document: RendererDocumentLifecycleIdentity,
+        event: crate::protocol_types::ChildFrameNavigationSnapshot,
+    ) {
+        self.push_owner_action(
+            None,
+            RendererOwnerAction::ChildFrameCommit {
+                source_document,
+                event,
+            },
+        );
+    }
+
     pub(crate) fn finish(self) -> Vec<PendingRendererOutputRecord> {
         std::mem::take(&mut *self.0.borrow_mut())
     }

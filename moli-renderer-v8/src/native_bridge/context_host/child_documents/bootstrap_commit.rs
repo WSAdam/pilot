@@ -131,6 +131,7 @@ impl JsContextHost {
                 window_commit,
                 false,
                 None,
+                None,
             )?;
             self.promote_pending_service_worker_child_client(handle);
             self.register_or_update_service_worker_child_client(handle);
@@ -185,6 +186,7 @@ impl JsContextHost {
                 &snapshot,
                 window_commit,
                 false,
+                None,
                 None,
             )?;
             ChildDocumentCommitResult::from_install(install)

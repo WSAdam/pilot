@@ -83,6 +83,27 @@ impl PagePreparedChildFrameDocumentActivity {
             secure_context_type,
         }
     }
+
+    /// One child Document's navigation commit, projected before its parser
+    /// can attach frames of its own.
+    pub(super) fn from_navigation_commit(
+        timestamp: f64,
+        commit: ChildFrameNavigationSnapshot,
+        security_origin: String,
+        secure_context_type: String,
+    ) -> Self {
+        let mut load = PagePreparedChildFrameLoadActivity::from_snapshot(commit, timestamp);
+        load.phase = PagePreparedChildFrameLoadPhase::Commit;
+        Self {
+            timestamp,
+            child_frame_tree_events: Vec::new(),
+            document_opened_events: Vec::new(),
+            document_networks: Vec::new(),
+            loads: vec![load],
+            security_origin,
+            secure_context_type,
+        }
+    }
 }
 
 /// Ordered child-frame tree mutation captured under the enclosing exact root
@@ -102,8 +123,21 @@ pub(crate) enum PagePreparedChildFrameTreeEvent {
     },
 }
 
+/// Which half of a child Document's navigation a load activity projects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PagePreparedChildFrameLoadPhase {
+    /// The Document committed and its parser has not run: navigation start,
+    /// the response's Network events, `frameNavigated` and `init`.
+    Commit,
+    /// The Document finished loading. When `commit_published`, its
+    /// `Commit` activity already went out and this one only completes the
+    /// lifecycle; otherwise it projects the whole navigation, as before.
+    Complete { commit_published: bool },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct PagePreparedChildFrameLoadActivity {
+    pub(super) phase: PagePreparedChildFrameLoadPhase,
     pub(super) document_open_replacement: bool,
     pub(super) navigation_start: PagePreparedChildFrameNavigationStart,
     pub(super) document_network: Option<PagePreparedChildFrameDocumentNetwork>,
@@ -113,6 +147,9 @@ pub(super) struct PagePreparedChildFrameLoadActivity {
 
 impl PagePreparedChildFrameLoadActivity {
     fn from_snapshot(load: ChildFrameNavigationSnapshot, timestamp: f64) -> Self {
+        let phase = PagePreparedChildFrameLoadPhase::Complete {
+            commit_published: load.navigation_commit_published,
+        };
         let exact_loader_id = load.loader_id.clone();
         let loader_id = load.loader_id.unwrap_or_else(|| LOADER_ID.to_owned());
         let navigation_start = PagePreparedChildFrameNavigationStart {
@@ -144,6 +181,7 @@ impl PagePreparedChildFrameLoadActivity {
             timestamp,
         };
         Self {
+            phase,
             document_open_replacement: load.document_open_replacement,
             navigation_start,
             document_network,

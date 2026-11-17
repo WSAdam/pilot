@@ -128,6 +128,7 @@ impl JsContextHost {
         window_commit: ChildDocumentWindowCommit,
         preserve_window_event_state: bool,
         navigation_loader: Option<crate::network::navigation::NavigationResourceLoader>,
+        document_network: Option<crate::protocol_types::ChildFrameDocumentNetworkSnapshot>,
     ) -> Option<ChildDocumentInstallResult> {
         if !self.child_browsing_contexts.contains_key(&handle) {
             return None;
@@ -143,6 +144,7 @@ impl JsContextHost {
             window_commit,
             preserve_window_event_state,
             navigation_loader,
+            document_network,
             is_xml_document,
         )
     }
@@ -168,6 +170,7 @@ impl JsContextHost {
         window_commit: ChildDocumentWindowCommit,
         preserve_window_event_state: bool,
         navigation_loader: Option<crate::network::navigation::NavigationResourceLoader>,
+        document_network: Option<crate::protocol_types::ChildFrameDocumentNetworkSnapshot>,
         is_xml_document: bool,
     ) -> Option<ChildDocumentInstallResult> {
         let source = if is_xml_document {
@@ -217,6 +220,16 @@ impl JsContextHost {
             .expect("child document commit must install a current owner");
         let owner_local_window_id = current_owner.local_window_id;
         let owner_document_id = current_owner.document_id;
+        // The commit goes out before the parser can attach this Document's
+        // own child frames, as Chromium's frameNavigated does.
+        if !self.queue_child_frame_navigation_committed_event(handle, document_network.clone())
+            && let Some(document_network) = document_network
+            && let Some(entry) = self.child_browsing_contexts.get_mut(&handle)
+        {
+            // No output sink took the commit, so the load-finish projection
+            // still carries it and must carry the network with it.
+            entry.bind_completed_document_network(current_owner, Some(document_network));
+        }
         self.dom_host_mut()
             .mark_subtree_connected_preserving_owner_document(document_handle);
         self.install_empty_child_classic_script_runner_for_current_document(

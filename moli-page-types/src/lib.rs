@@ -3298,6 +3298,12 @@ pub struct ChildFrameNavigationSnapshot {
     pub security_origin_opaque: bool,
     #[serde(default)]
     pub document_network: Option<ChildFrameDocumentNetworkSnapshot>,
+    /// On a load-finish snapshot: this same child Document's navigation
+    /// commit was already published as its own record, before its parser
+    /// could attach frames of its own. The load then carries only the
+    /// lifecycle completion, never a second `Page.frameNavigated` or `init`.
+    #[serde(default)]
+    pub navigation_commit_published: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

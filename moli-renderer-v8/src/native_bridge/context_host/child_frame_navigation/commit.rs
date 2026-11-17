@@ -729,6 +729,7 @@ impl JsContextHost {
                 window_commit,
                 preserve_window_event_state,
                 None,
+                None,
             )
         }) else {
             let _ = self.finish_child_frame_navigation_without_load_dispatch(

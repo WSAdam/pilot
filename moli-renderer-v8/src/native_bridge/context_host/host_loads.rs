@@ -42,6 +42,8 @@ pub(crate) struct ChildFrameNavigationSnapshot {
     pub(crate) security_origin_opaque: bool,
     #[serde(default)]
     pub(crate) document_network: Option<crate::protocol_types::ChildFrameDocumentNetworkSnapshot>,
+    #[serde(default)]
+    pub(crate) navigation_commit_published: bool,
 }
 
 impl ChildFrameNavigationSnapshot {
@@ -56,6 +58,7 @@ impl ChildFrameNavigationSnapshot {
             security_origin_inherited: self.security_origin_inherited,
             security_origin_opaque: self.security_origin_opaque,
             document_network: self.document_network,
+            navigation_commit_published: self.navigation_commit_published,
         }
     }
 }
@@ -314,6 +317,86 @@ impl JsContextHost {
         panic!(
             "a production child Document-opened event must have a concrete renderer output sink"
         );
+    }
+
+    /// Publishes the navigation commit of the child's just-installed
+    /// Document, before its parser runs.
+    ///
+    /// Chromium sends a frame's `Page.frameNavigated` when the navigation
+    /// commits, so a client always sees it before `Page.frameAttached` of
+    /// that Document's own child frames. Playwright removes a frame's child
+    /// frames when the frame's commit arrives; a commit sent only at load
+    /// finish, after a grandchild attached, made it drop the grandchild.
+    ///
+    /// `document_network` is the navigation response of a network load, so
+    /// its Network events still precede the commit. Returns `false` when no
+    /// output sink took the commit; the load-finish projection then carries
+    /// the commit, and the network, as before.
+    pub(in crate::native_bridge::context_host) fn queue_child_frame_navigation_committed_event(
+        &mut self,
+        handle: DomHandle,
+        document_network: Option<crate::protocol_types::ChildFrameDocumentNetworkSnapshot>,
+    ) -> bool {
+        let Some(owner_snapshot) = self.frame_owner_store.current_child_owner_snapshot(handle)
+        else {
+            return false;
+        };
+        let owner = crate::frame_owner_model::FrameDocumentTaskOwner::new(
+            owner_snapshot.scheduler_lane_id,
+            owner_snapshot.local_window_id,
+            owner_snapshot.document_id,
+        );
+        let security_origin_opaque = self.child_browsing_context_has_opaque_origin(handle);
+        let parent_frame_id = self.protocol_child_frame_parent_id(
+            owner_snapshot
+                .parent_frame_id
+                .as_ref()
+                .map(|frame_id| frame_id.0.clone()),
+        );
+        let Some(entry) = self.child_browsing_contexts.get(&handle) else {
+            return false;
+        };
+        let identity = entry.frame_identity_snapshot();
+        if identity.frame_id != owner_snapshot.frame_id.0 {
+            return false;
+        }
+        let event = ChildFrameNavigationSnapshot {
+            frame_id: identity.frame_id,
+            parent_frame_id,
+            loader_id: entry.current_document_loader_id().map(ToOwned::to_owned),
+            name: identity.name,
+            url: owner_snapshot.document_url.to_string(),
+            document_open_replacement: false,
+            security_origin_inherited: identity.security_origin_inherited,
+            security_origin_opaque,
+            document_network,
+            navigation_commit_published: false,
+        }
+        .into_protocol_snapshot();
+        let Some(source_document) = self.root_document_lifecycle_identity() else {
+            return false;
+        };
+        let published = if let Some(recorder) = self.command_turn_output.clone() {
+            recorder.push_child_frame_commit(source_document, event);
+            true
+        } else {
+            self.append_live_turn_owner_action(
+                crate::runtime::RendererOwnerAction::ChildFrameCommit {
+                    source_document,
+                    event,
+                },
+            )
+        };
+        if published && let Some(entry) = self.child_browsing_contexts.get_mut(&handle) {
+            entry.note_navigation_commit_published(owner);
+        }
+        tracing::debug!(
+            child_handle = ?handle,
+            ?owner,
+            published,
+            "published child frame navigation commit before its parser"
+        );
+        published
     }
 
     /// Delivers child Document loads exclusively through FrameOwnerStore's
@@ -581,6 +664,8 @@ impl JsContextHost {
             );
             return None;
         }
+        let navigation_commit_published =
+            entry.take_navigation_commit_published_for_owner(finish.owner);
         Some(ChildFrameNavigationSnapshot {
             frame_id: finish.frame_id.0.clone(),
             // The renderer's reserved main-frame identity is local to the
@@ -595,6 +680,7 @@ impl JsContextHost {
             security_origin_inherited: identity.security_origin_inherited,
             security_origin_opaque,
             document_network: entry.take_completed_document_network_for_owner(finish.owner),
+            navigation_commit_published,
         })
     }
 

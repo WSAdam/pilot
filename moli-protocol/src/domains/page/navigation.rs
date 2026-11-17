@@ -38,14 +38,16 @@ use super::{
     LOADER_ID, PageCommandTaskStep,
     child_frame_activity::{
         PagePreparedChildFrameActivity, PagePreparedChildFrameDocumentActivity,
-        PagePreparedChildFrameTreeEvent,
+        PagePreparedChildFrameLoadPhase, PagePreparedChildFrameTreeEvent,
     },
     child_frame_security_identity,
     lifecycle::{
         NavigationStartInitiator, emit_child_frame_document_open_completed_background_events,
-        emit_child_frame_document_opened_background_events, emit_child_frame_lifecycle_terminal,
-        emit_child_frame_navigation_commit, emit_navigation_started_background_events,
-        frame_record_for_event, push_document_lifecycle_fact, push_navigation_frame_fact,
+        emit_child_frame_document_opened_background_events, emit_child_frame_lifecycle_completion,
+        emit_child_frame_lifecycle_terminal, emit_child_frame_navigation_commit,
+        emit_navigation_lifecycle_init_background_events,
+        emit_navigation_started_background_events, frame_record_for_event,
+        push_document_lifecycle_fact, push_navigation_frame_fact,
     },
 };
 
@@ -2155,6 +2157,50 @@ pub(crate) fn emit_prepared_child_frame_activity(
             }
             continue;
         }
+        if matches!(
+            load.phase,
+            PagePreparedChildFrameLoadPhase::Complete {
+                commit_published: true
+            }
+        ) {
+            // This Document's commit activity already sent the navigation
+            // start, its Network events, frameNavigated and init. A second
+            // frameNavigated here would make Playwright drop the frames the
+            // Document attached since.
+            if let Some(frame) = frame.as_ref() {
+                push_document_lifecycle_fact(
+                    &mut activity_events,
+                    frame,
+                    DocumentLifecyclePhase::DomContentLoaded,
+                    load.lifecycle_terminal.timestamp,
+                );
+                push_document_lifecycle_fact(
+                    &mut activity_events,
+                    frame,
+                    DocumentLifecyclePhase::Load,
+                    load.lifecycle_terminal.timestamp,
+                );
+            }
+            for event_session_id in &page_event_session_ids {
+                let event_owner = event_session_id
+                    .as_deref()
+                    .map(CommandOwnerScope::for_session)
+                    .unwrap_or_else(|| owner.clone());
+                let lifecycle_enabled = conn
+                    .target_page_session_state_for_owner(&event_owner)
+                    .is_some_and(|state| state.page_lifecycle_events);
+                emit_child_frame_lifecycle_completion(
+                    &mut activity_events,
+                    event_session_id.as_deref(),
+                    lifecycle_enabled,
+                    &load.lifecycle_terminal.frame_id,
+                    &load.lifecycle_terminal.loader_id,
+                    load.lifecycle_terminal.timestamp,
+                );
+            }
+            continue;
+        }
+        let commit_only = load.phase == PagePreparedChildFrameLoadPhase::Commit;
         let (security_origin, secure_context_type) = child_frame_security_identity(
             &load.navigation_commit.url,
             load.navigation_commit.security_origin_inherited,
@@ -2203,18 +2249,20 @@ pub(crate) fn emit_prepared_child_frame_activity(
                 frame,
                 NavigationFrameEventKind::Navigated,
             );
-            push_document_lifecycle_fact(
-                &mut activity_events,
-                frame,
-                DocumentLifecyclePhase::DomContentLoaded,
-                load.lifecycle_terminal.timestamp,
-            );
-            push_document_lifecycle_fact(
-                &mut activity_events,
-                frame,
-                DocumentLifecyclePhase::Load,
-                load.lifecycle_terminal.timestamp,
-            );
+            if !commit_only {
+                push_document_lifecycle_fact(
+                    &mut activity_events,
+                    frame,
+                    DocumentLifecyclePhase::DomContentLoaded,
+                    load.lifecycle_terminal.timestamp,
+                );
+                push_document_lifecycle_fact(
+                    &mut activity_events,
+                    frame,
+                    DocumentLifecyclePhase::Load,
+                    load.lifecycle_terminal.timestamp,
+                );
+            }
         }
         for event_session_id in &page_event_session_ids {
             let event_owner = event_session_id
@@ -2235,14 +2283,26 @@ pub(crate) fn emit_prepared_child_frame_activity(
                 &security_origin,
                 &secure_context_type,
             );
-            emit_child_frame_lifecycle_terminal(
-                &mut activity_events,
-                event_session_id.as_deref(),
-                lifecycle_enabled,
-                &load.lifecycle_terminal.frame_id,
-                &load.lifecycle_terminal.loader_id,
-                load.lifecycle_terminal.timestamp,
-            );
+            if commit_only {
+                // The rest of the lifecycle follows with the Document's load.
+                emit_navigation_lifecycle_init_background_events(
+                    &mut activity_events,
+                    event_session_id.as_deref(),
+                    lifecycle_enabled,
+                    &load.lifecycle_terminal.frame_id,
+                    &load.lifecycle_terminal.loader_id,
+                    load.lifecycle_terminal.timestamp,
+                );
+            } else {
+                emit_child_frame_lifecycle_terminal(
+                    &mut activity_events,
+                    event_session_id.as_deref(),
+                    lifecycle_enabled,
+                    &load.lifecycle_terminal.frame_id,
+                    &load.lifecycle_terminal.loader_id,
+                    load.lifecycle_terminal.timestamp,
+                );
+            }
         }
     }
     out.extend(

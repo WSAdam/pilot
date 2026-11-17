@@ -654,6 +654,7 @@ impl ScriptVm {
                     security_origin_inherited: snapshot.security_origin_inherited,
                     security_origin_opaque: snapshot.security_origin_opaque,
                     document_network: snapshot.document_network,
+                    navigation_commit_published: snapshot.navigation_commit_published,
                 },
             )
             .collect()

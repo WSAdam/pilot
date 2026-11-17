@@ -484,6 +484,11 @@ impl JsContextHost {
                             entry
                                 .completed_document_network_for_refresh(attribute_bootstrap_changed)
                         }),
+                        // Keyed by Document owner, so a refresh never lets it
+                        // match a later Document's load.
+                        navigation_commit_published_owner: existing.as_ref().and_then(|entry| {
+                            entry.navigation_commit_published_owner_for_refresh()
+                        }),
                         completed_frame_owner_resource_timing: existing.as_ref().and_then(
                             |entry| {
                                 entry.completed_frame_owner_resource_timing_for_refresh(

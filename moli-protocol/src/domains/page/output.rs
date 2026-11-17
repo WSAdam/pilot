@@ -312,6 +312,41 @@ impl PagePreparedOutputs {
         }
     }
 
+    /// A child Document's navigation commit, published by the renderer
+    /// before that Document's parser can attach frames of its own.
+    pub(crate) fn from_renderer_child_frame_commit(
+        conn: &CdpConnection,
+        owner: &CommandOwnerScope,
+        source_document: RendererDocumentLifecycleIdentity,
+        mut event: ChildFrameNavigationSnapshot,
+    ) -> Self {
+        let Some(binding) =
+            conn.target_root_document_output_identity_for_owner(owner, source_document)
+        else {
+            return Self::default();
+        };
+        let Some((root_frame_id, _, security_origin, secure_context_type)) =
+            conn.target_session_owner_frame_tree_identity_for_owner(owner)
+        else {
+            return Self::default();
+        };
+        if event.parent_frame_id.is_none() {
+            event.parent_frame_id = Some(root_frame_id);
+        }
+        let document = PagePreparedChildFrameDocumentActivity::from_navigation_commit(
+            monotonic_timestamp_seconds(),
+            event,
+            security_origin,
+            secure_context_type,
+        );
+        Self {
+            child_frame_activities: vec![PagePreparedChildFrameActivity::from_document(
+                binding, document,
+            )],
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn from_renderer_child_frame_load(
         conn: &CdpConnection,
         owner: &CommandOwnerScope,
@@ -574,6 +609,7 @@ impl PagePreparedOutputs {
                 security_origin_inherited: false,
                 security_origin_opaque: false,
                 document_network: None,
+                navigation_commit_published: false,
             }],
             "https://example.test".to_owned(),
             "Secure".to_owned(),

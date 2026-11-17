@@ -54,6 +54,15 @@ pub enum RendererOwnerAction {
         source_document: RendererDocumentLifecycleIdentity,
         event: ChildFrameDocumentNetworkActivitySnapshot,
     },
+    /// A child frame committed a new Document, published before that
+    /// Document's parser runs. Chromium sends the frame's `frameNavigated`
+    /// at commit, so a client sees it before `frameAttached` of the
+    /// Document's own child frames. The later `ChildFrameLoad` for the same
+    /// Document carries `navigation_commit_published`.
+    ChildFrameCommit {
+        source_document: RendererDocumentLifecycleIdentity,
+        event: ChildFrameNavigationSnapshot,
+    },
     ChildFrameLoad {
         source_document: RendererDocumentLifecycleIdentity,
         event: ChildFrameNavigationSnapshot,

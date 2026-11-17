@@ -313,6 +313,149 @@ async fn navigate_with_nested_child_frame_reports_outer_parent_frame_id() {
     assert_child_frame_attached(&ctx, &inner_frame_id, &outer_frame_id);
 }
 
+/// Navigates to `url`, whose one child frame holds one grandchild frame, and
+/// checks Chromium's commit order: the child's `Page.frameNavigated` is sent
+/// exactly once, before `Page.frameAttached` of the grandchild. Playwright
+/// removes a frame's child frames when that frame's commit arrives, so a
+/// later commit made `page.frames()` drop the grandchild.
+async fn assert_child_commit_precedes_grandchild_attach(
+    command_id: u64,
+    url: &str,
+    child_name: Option<&str>,
+) {
+    let mut ctx = TestContext::new();
+    load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
+    ctx.enable_page_events_for_test(Some("SID-1"));
+    ctx.with_fixture(|conn| {
+        conn.browser_context
+            .as_mut()
+            .unwrap()
+            .active_page_target_mut()
+            .devtools_sessions[moli_page_types::DevToolsSessionKey::Primary]
+            .page_session_state
+            .page_lifecycle_events = true;
+    });
+    ctx.process_async(json!({
+        "id": command_id,
+        "method": "Page.navigate",
+        "sessionId": "SID-1",
+        "params": { "url": url }
+    }))
+    .await;
+    let _ = take_response_by_id(&mut ctx, command_id);
+    wait_until_messages(
+        &mut ctx,
+        "SID-1",
+        "child and grandchild frames attached and stopped loading",
+        |messages| {
+            let attached = messages
+                .iter()
+                .filter(|message| message["method"] == json!("Page.frameAttached"))
+                .filter_map(|message| message["params"]["frameId"].as_str())
+                .collect::<Vec<_>>();
+            attached.len() >= 2
+                && attached.iter().all(|frame_id| {
+                    messages.iter().any(|message| {
+                        message["method"] == json!("Page.frameStoppedLoading")
+                            && message["params"]["frameId"].as_str() == Some(*frame_id)
+                    })
+                })
+        },
+    )
+    .await;
+
+    let child_frame_id = ctx
+        .sent
+        .iter()
+        .find(|message| {
+            message["method"] == json!("Page.frameAttached")
+                && message["params"]["parentFrameId"] == json!("TID-1")
+        })
+        .and_then(|message| message["params"]["frameId"].as_str())
+        .map(str::to_owned)
+        .expect("child frame should emit Page.frameAttached");
+    let grandchild_attached_index = ctx
+        .sent
+        .iter()
+        .position(|message| {
+            message["method"] == json!("Page.frameAttached")
+                && message["params"]["parentFrameId"] == json!(child_frame_id)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "grandchild frame should emit Page.frameAttached under the child; sent={:?}",
+                ctx.sent
+            )
+        });
+    let grandchild_frame_id = ctx.sent[grandchild_attached_index]["params"]["frameId"]
+        .as_str()
+        .expect("grandchild frame id")
+        .to_owned();
+    let child_navigated_indices = ctx
+        .sent
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| {
+            message["method"] == json!("Page.frameNavigated")
+                && message["params"]["frame"]["id"] == json!(child_frame_id)
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        child_navigated_indices.len(),
+        1,
+        "the child Document must be committed exactly once; sent={:?}",
+        ctx.sent
+    );
+    assert!(
+        child_navigated_indices[0] < grandchild_attached_index,
+        "the child's frameNavigated must precede the grandchild's frameAttached; sent={:?}",
+        ctx.sent
+    );
+    let grandchild_navigated = ctx
+        .sent
+        .iter()
+        .find(|message| {
+            message["method"] == json!("Page.frameNavigated")
+                && message["params"]["frame"]["id"] == json!(grandchild_frame_id)
+        })
+        .cloned()
+        .expect("grandchild frame should emit Page.frameNavigated");
+    assert_eq!(
+        grandchild_navigated["params"]["frame"]["parentId"],
+        json!(child_frame_id)
+    );
+    // One `init`, then the rest of the lifecycle, for the child's loader.
+    assert_child_frame_navigation_completion(&mut ctx, &child_frame_id, child_name, None).await;
+    assert_child_frame_navigation_completion(&mut ctx, &grandchild_frame_id, None, None).await;
+}
+
+// 2026-11-17: a child frame's Page.frameNavigated was sent only at its load
+// finish, after its own child frame had attached, so Playwright dropped the
+// grandchild from page.frames().
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_srcdoc_child_frame_navigated_precedes_grandchild_frame_attached() {
+    assert_child_commit_precedes_grandchild_attach(
+        5242,
+        "data:text/html,<iframe id='outer' name='outer-frame' srcdoc=\"<iframe name='inner-frame' srcdoc='<body>inner</body>'></iframe>\"></iframe>",
+        Some("outer-frame"),
+    )
+    .await;
+}
+
+// 2026-11-17: a data: URL child frame's Page.frameNavigated was sent only at
+// its load finish, after its nested data: URL iframe had attached, so
+// Playwright's page.frames() listed 2 frames instead of 3.
+#[tokio::test(flavor = "multi_thread")]
+async fn nested_data_url_child_frame_navigated_precedes_grandchild_frame_attached() {
+    assert_child_commit_precedes_grandchild_attach(
+        5243,
+        r#"data:text/html,<h1>Hello</h1><iframe src="data:text/html,<button>World</button><main><iframe src='data:text/html,<p>Nested</p>'></iframe></main>"></iframe>"#,
+        None,
+    )
+    .await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn navigate_child_named_world_reports_context_when_document_start_script_throws() {
     let mut ctx = TestContext::new();

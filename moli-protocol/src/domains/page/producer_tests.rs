@@ -1583,6 +1583,133 @@ async fn child_frame_activity_emits_navigation_before_init_before_lifecycle_term
     );
 }
 
+// 2026-11-17: a child Document's commit went out only with its load, so its
+// frameNavigated followed frameAttached of the frame its parser had attached.
+#[tokio::test(flavor = "multi_thread")]
+async fn child_frame_commit_then_its_load_emit_one_frame_navigated_and_one_init() {
+    let ctx = crate::testing::TestContext::from_conn(CdpConnection::default());
+    let mut bc = BrowserContext::new("BID-1".into());
+    bc.set_active_target_id("TID-1");
+    bc.set_target_url("https://example.test/page".to_owned());
+    bc.attach_active_session("SID-1");
+    bc.active_page_target_mut().devtools_sessions[moli_page_types::DevToolsSessionKey::Primary]
+        .page_session_state
+        .page_lifecycle_events = true;
+    bc.active_page_target_mut().devtools_sessions[moli_page_types::DevToolsSessionKey::Primary]
+        .page_session_state
+        .page_domain_enabled = true;
+    ctx.with_fixture(|conn| conn.install_browser_context_fixture_for_test(bc));
+    let source_document = renderer_document_identity_for_test(1, 1);
+    ctx.with_fixture(|conn| {
+        bind_renderer_document_for_test(conn, "SID-1", "TID-1", source_document)
+    });
+    let child_snapshot = |navigation_commit_published| ChildFrameNavigationSnapshot {
+        frame_id: "CHILD-FRAME-1".to_owned(),
+        parent_frame_id: Some("TID-1".to_owned()),
+        loader_id: Some("LID-CHILD-1".to_owned()),
+        name: Some("child-frame".to_owned()),
+        url: "https://example.test/child".to_owned(),
+        document_open_replacement: false,
+        security_origin_inherited: false,
+        security_origin_opaque: false,
+        document_network: None,
+        navigation_commit_published,
+    };
+    let attach = |timestamp, frame_id: &str, parent_frame_id: &str| {
+        super::PagePreparedChildFrameDocumentActivity::from_parts(
+            timestamp,
+            vec![super::PagePreparedChildFrameTreeEvent::Attached {
+                frame_id: frame_id.to_owned(),
+                parent_frame_id: parent_frame_id.to_owned(),
+            }],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "https://example.test".to_owned(),
+            "Secure".to_owned(),
+        )
+    };
+    // The renderer's order: the child attaches, commits, its parser attaches
+    // the grandchild, and the child's load finishes after the grandchild's.
+    let documents = [
+        attach(12.5, "CHILD-FRAME-1", "TID-1"),
+        super::PagePreparedChildFrameDocumentActivity::from_navigation_commit(
+            12.6,
+            child_snapshot(false),
+            "https://example.test".to_owned(),
+            "Secure".to_owned(),
+        ),
+        attach(12.7, "GRANDCHILD-FRAME-1", "CHILD-FRAME-1"),
+        super::PagePreparedChildFrameDocumentActivity::from_parts(
+            12.8,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![child_snapshot(true)],
+            "https://example.test".to_owned(),
+            "Secure".to_owned(),
+        ),
+    ];
+    let mut background_events = Vec::new();
+    for document in documents {
+        let activity = ctx.with_fixture(|conn| {
+            prepared_child_frame_activity_for_test(conn, "SID-1", source_document, document)
+        });
+        ctx.with_fixture(|conn| {
+            super::emit_prepared_child_frame_activity(conn, &mut background_events, activity, None)
+        });
+    }
+    let out = protocol_messages_from_background_events(background_events);
+
+    let child_event_indices = |method: &str| {
+        out.iter()
+            .enumerate()
+            .filter(|(_, message)| {
+                message["method"] == json!(method)
+                    && (message["params"]["frameId"] == json!("CHILD-FRAME-1")
+                        || message["params"]["frame"]["id"] == json!("CHILD-FRAME-1"))
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>()
+    };
+    let navigated = child_event_indices("Page.frameNavigated");
+    let started_navigating = child_event_indices("Page.frameStartedNavigating");
+    let stopped_loading = child_event_indices("Page.frameStoppedLoading");
+    assert_eq!(navigated.len(), 1, "one child commit: {out:?}");
+    assert_eq!(started_navigating.len(), 1, "one child navigation: {out:?}");
+    assert_eq!(stopped_loading.len(), 1, "one child load: {out:?}");
+    let grandchild_attached = out
+        .iter()
+        .position(|message| {
+            message["method"] == json!("Page.frameAttached")
+                && message["params"]["frameId"] == json!("GRANDCHILD-FRAME-1")
+        })
+        .expect("grandchild frameAttached should be emitted");
+    assert!(
+        navigated[0] < grandchild_attached && grandchild_attached < stopped_loading[0],
+        "the child's frameNavigated must precede the grandchild's frameAttached, and its load follow it: {out:?}"
+    );
+    let lifecycle = out
+        .iter()
+        .filter(|message| {
+            message["method"] == json!("Page.lifecycleEvent")
+                && message["params"]["frameId"] == json!("CHILD-FRAME-1")
+        })
+        .map(|message| message["params"]["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lifecycle,
+        [
+            "init",
+            "DOMContentLoaded",
+            "load",
+            "networkAlmostIdle",
+            "networkIdle"
+        ],
+        "one init at commit, the rest with the load: {out:?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn child_frame_activity_fans_out_page_events_to_enabled_attached_session() {
     let ctx = crate::testing::TestContext::from_conn(CdpConnection::default());
@@ -1680,6 +1807,7 @@ async fn child_frame_activity_projects_sandboxed_about_blank_from_document_url()
             security_origin_inherited: true,
             security_origin_opaque: true,
             document_network: None,
+            navigation_commit_published: false,
         }],
         "https://top.example".to_owned(),
         "Secure".to_owned(),
@@ -1817,6 +1945,7 @@ async fn unattached_child_frame_activity_uses_captured_owner_for_network_and_lif
                 security_origin_inherited: false,
                 security_origin_opaque: false,
                 document_network: Some(network),
+                navigation_commit_published: false,
             }],
             "https://example.test".into(),
             "Secure".into(),
@@ -1939,6 +2068,7 @@ async fn child_frame_activity_emits_document_network_events_from_prepared_load()
                 from_cache: true,
                 cache_state: moli_fetch::ResponseCacheState::Local,
             }),
+            navigation_commit_published: false,
         }],
         "https://example.test".to_owned(),
         "Secure".to_owned(),

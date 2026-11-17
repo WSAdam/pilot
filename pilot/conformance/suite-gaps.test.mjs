@@ -156,7 +156,7 @@ test("Playwright's recorder records a click and a fill as code", { timeout: 60_0
 // 2026-11-10: an iframe nested inside a data: URL iframe never became a frame,
 // and page.ariaSnapshot failed with "Maximum call stack size exceeded" (MCP
 // iframes.spec stitched aria frames, CLI click in iframe).
-test('a nested iframe loads as its own frame and the snapshot stitches it in', { todo: 'Build 3', timeout: 60_000 }, () =>
+test('a nested iframe loads as its own frame and the snapshot stitches it in', { timeout: 60_000 }, () =>
   withPage(async (page) => {
     await page.goto(`data:text/html,<h1>Hello</h1><iframe src="data:text/html,<button>World</button><main><iframe src='data:text/html,<p>Nested</p>'></iframe></main>"></iframe>`);
     await page.waitForFunction(() => true);

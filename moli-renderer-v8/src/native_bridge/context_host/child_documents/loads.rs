@@ -671,6 +671,8 @@ impl JsContextHost {
                 DocumentCreationKind::Navigation,
                 Some(loader_id),
             );
+            // The install publishes the navigation commit, with this
+            // response's Network events, before the child's parser runs.
             let Some(install) = self.install_child_browsing_context_current_document_from_snapshot(
                 scope,
                 handle,
@@ -678,6 +680,7 @@ impl JsContextHost {
                 window_commit,
                 false,
                 Some(pending.resource_loader.clone()),
+                completed_document_network.clone(),
             ) else {
                 return ChildDocumentLoadApplication::Applied {
                     followup: None,
@@ -693,10 +696,9 @@ impl JsContextHost {
                 let frame_owner_resource_timing = pending
                     .frame_owner_resource_timing
                     .take()
-                    .zip(completed_document_network.clone())
+                    .zip(completed_document_network)
                     .map(|(timing, network)| timing.complete(current_owner, network));
                 entry.bind_completed_frame_owner_resource_timing(frame_owner_resource_timing);
-                entry.bind_completed_document_network(current_owner, completed_document_network);
             }
             self.promote_pending_service_worker_child_client(handle);
         } else {

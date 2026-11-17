@@ -482,10 +482,35 @@ pub(crate) fn emit_child_frame_lifecycle_terminal(
     loader_id: &str,
     timestamp: f64,
 ) {
+    emit_navigation_lifecycle_init_background_events(
+        out,
+        session_id,
+        lifecycle_enabled,
+        frame_id,
+        loader_id,
+        timestamp,
+    );
+    emit_child_frame_lifecycle_completion(
+        out,
+        session_id,
+        lifecycle_enabled,
+        frame_id,
+        loader_id,
+        timestamp,
+    );
+}
+
+/// The lifecycle tail of a child Document whose commit, with its `init`,
+/// was already sent: everything after `init`, then `frameStoppedLoading`.
+pub(crate) fn emit_child_frame_lifecycle_completion(
+    out: &mut Vec<BackgroundProtocolEvent>,
+    session_id: Option<&str>,
+    lifecycle_enabled: bool,
+    frame_id: &str,
+    loader_id: &str,
+    timestamp: f64,
+) {
     if lifecycle_enabled {
-        emit_cdp_page_lifecycle_marker_background_event(
-            out, session_id, "init", frame_id, loader_id, timestamp,
-        );
         emit_cdp_page_lifecycle_marker_background_event(
             out,
             session_id,

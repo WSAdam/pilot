@@ -46,6 +46,7 @@ impl JsContextHost {
                 window_commit,
                 false,
                 None,
+                None,
             );
             debug_assert!(
                 install

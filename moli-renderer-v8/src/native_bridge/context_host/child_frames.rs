@@ -56,6 +56,9 @@ pub(super) struct ChildBrowsingContextEntry {
     cached_snapshot: Option<ChildBrowsingContextSnapshot>,
     document_policy_container: ChildDocumentPolicyContainer,
     completed_document_network: Option<CompletedChildDocumentNetwork>,
+    /// The Document owner whose navigation commit was already published.
+    /// Its load finish must not publish the commit a second time.
+    navigation_commit_published_owner: Option<FrameDocumentTaskOwner>,
     completed_frame_owner_resource_timing: Option<CompletedFrameOwnerResourceTiming>,
     performance_time_origin: ChildPerformanceTimeOrigin,
     pending_document_load_id: Option<u64>,
@@ -564,6 +567,29 @@ impl ChildBrowsingContextEntry {
             .take()
             .filter(|network| network.owner == owner)
             .map(|network| network.snapshot)
+    }
+
+    fn navigation_commit_published_owner_for_refresh(&self) -> Option<FrameDocumentTaskOwner> {
+        self.navigation_commit_published_owner
+    }
+
+    pub(super) fn note_navigation_commit_published(&mut self, owner: FrameDocumentTaskOwner) {
+        self.navigation_commit_published_owner = Some(owner);
+    }
+
+    /// Consumes the published-commit mark when it belongs to `owner`. Keyed
+    /// by Document owner, not loader id: `javascript:` URL Documents keep the
+    /// loader id of the Document they replace.
+    pub(super) fn take_navigation_commit_published_for_owner(
+        &mut self,
+        owner: FrameDocumentTaskOwner,
+    ) -> bool {
+        if self.navigation_commit_published_owner == Some(owner) {
+            self.navigation_commit_published_owner = None;
+            true
+        } else {
+            false
+        }
     }
 
     fn completed_frame_owner_resource_timing_for_refresh(

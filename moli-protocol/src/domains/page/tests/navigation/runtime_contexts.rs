@@ -1382,8 +1382,11 @@ async fn navigate_emits_each_child_default_context_identity_once_per_runtime_ses
     );
 }
 
+// 2026-11-17: Chromium sends a child frame's frameNavigated at commit, before
+// the committed Document's realms exist; pilot sent it only at load finish,
+// after the named world, and so after any grandchild frameAttached too.
 #[tokio::test(flavor = "multi_thread")]
-async fn navigate_after_real_runtime_enable_auto_creates_native_named_child_world_before_frame_navigated()
+async fn navigate_after_real_runtime_enable_auto_creates_native_named_child_world_after_frame_navigated()
  {
     let mut ctx = TestContext::new();
     load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
@@ -1488,7 +1491,7 @@ async fn navigate_after_real_runtime_enable_auto_creates_native_named_child_worl
     wait_until_message(
         &mut ctx,
         "SID-1",
-        "child frame navigation after its native named Runtime context",
+        "child frame navigation that commits the named Runtime context's Document",
         move |message| {
             message["method"] == json!("Page.frameNavigated")
                 && message["params"]["frame"]["id"] == json!(expected_child_frame_id)
@@ -1509,8 +1512,8 @@ async fn navigate_after_real_runtime_enable_auto_creates_native_named_child_worl
         })
         .expect("child frame should emit Page.frameNavigated");
     assert!(
-        named_world_created_index < child_frame_navigated_index,
-        "child named-world context should be emitted before child frameNavigated; sent={:?}",
+        child_frame_navigated_index < named_world_created_index,
+        "child frameNavigated should be emitted at commit, before the committed Document's named-world context; sent={:?}",
         ctx.sent
     );
     let child_context_id = named_world_created["params"]["context"]["id"]
