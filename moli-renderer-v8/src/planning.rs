@@ -456,7 +456,11 @@ fn local_or_unsupported_external_script_source_load_outcome(
                 script.url
             )),
         }),
-        "http" | "https" => None,
+        // pilot: a file:// script goes to the request client too, which loads
+        // a file:// document's classic file:// scripts while local file
+        // navigation is on, as Chrome does, and otherwise leaves the HTTP
+        // transport to refuse it.
+        "http" | "https" | "file" => None,
         scheme => Some(failed_external_script_source_load_outcome(format!(
             "failed to fetch script `{}`: URL scheme `{scheme}` is not allowed",
             script.url
@@ -995,6 +999,64 @@ mod tests {
             &error
         );
 
+        Ok(())
+    }
+
+    // 2026-11-17: a file:// document's classic script was refused before any fetch ("URL scheme `file` is not allowed"), so a local page never ran its scripts; Chrome reads them from disk.
+    #[tokio::test]
+    async fn file_document_loads_relative_file_script() -> anyhow::Result<()> {
+        let dir =
+            std::env::temp_dir().join(format!("pilot-file-script-source-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let script_path = dir.join("app.js");
+        std::fs::write(&script_path, "window.appRan = true;")?;
+        let script_url = url::Url::from_file_path(&script_path).expect("absolute script path");
+        let mut config = moli_fetch::FetchConfig::default();
+        config.set_local_file_navigation(true);
+        let loader = ResourceRequestClient::new(&config)?;
+
+        let script = prepared_external_script_with_initiator(
+            script_url.clone(),
+            ScriptKind::Classic,
+            url::Url::from_file_path(dir.join("index.html")).expect("absolute document path"),
+        );
+        let outcome = load_prepared_script_source_outcome_with_document_character_set(
+            &script,
+            &moli_url::WebOrigin::from_url(&script.initiator_url),
+            &loader,
+            Some("UTF-8"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            outcome
+                .source_result
+                .expect("a file:// document's classic file:// script should load"),
+            "window.appRan = true;"
+        );
+
+        // An http(s) page still cannot load a file:// script.
+        let web_script = prepared_external_script_with_initiator(
+            script_url,
+            ScriptKind::Classic,
+            url::Url::parse("https://example.test/index.html")?,
+        );
+        let refused = load_prepared_script_source_outcome_with_document_character_set(
+            &web_script,
+            &moli_url::WebOrigin::from_url(&web_script.initiator_url),
+            &loader,
+            Some("UTF-8"),
+            None,
+        )
+        .await
+        .source_result
+        .expect_err("an http(s) page must not load a file:// script");
+        assert!(
+            refused.contains("URL scheme \"file\" is not supported by the HTTP network transport."),
+            "{refused}"
+        );
+
+        std::fs::remove_dir_all(&dir)?;
         Ok(())
     }
 

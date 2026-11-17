@@ -70,6 +70,65 @@ pub(crate) fn data_url_response(url: &url::Url) -> Option<Response> {
     ))
 }
 
+/// pilot: the largest local file a file:// document may load as a
+/// subresource, the same 64 MiB limit as a file:// document itself.
+const LOCAL_FILE_SUBRESOURCE_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// pilot: reads a file:// subresource from disk as a synthetic 200, the way
+/// Chrome's file loader serves a file:// document's stylesheets, scripts and
+/// images. Only regular files within the size limit are read (a directory,
+/// FIFO or device is not a resource), typed from the extension, else sniffed.
+/// The error is Chrome's net error text. The caller decides whether the
+/// request may load a local file at all.
+pub(crate) fn local_file_response(url: &url::Url) -> Result<Response, &'static str> {
+    use std::io::Read as _;
+
+    const NOT_FOUND: &str = "net::ERR_FILE_NOT_FOUND";
+    const TOO_BIG: &str = "net::ERR_FILE_TOO_BIG";
+    let path = url.to_file_path().map_err(|()| NOT_FOUND)?;
+    let metadata = std::fs::metadata(&path).map_err(|_| NOT_FOUND)?;
+    if !metadata.is_file() {
+        return Err(NOT_FOUND);
+    }
+    if metadata.len() > LOCAL_FILE_SUBRESOURCE_LIMIT {
+        return Err(TOO_BIG);
+    }
+    let mut body_bytes = Vec::new();
+    std::fs::File::open(&path)
+        .map_err(|_| "net::ERR_ACCESS_DENIED")?
+        .take(LOCAL_FILE_SUBRESOURCE_LIMIT + 1)
+        .read_to_end(&mut body_bytes)
+        .map_err(|_| "net::ERR_FAILED")?;
+    if body_bytes.len() as u64 > LOCAL_FILE_SUBRESOURCE_LIMIT {
+        return Err(TOO_BIG);
+    }
+    let content_type = match moli_web_mime::selected_file_mime_type(url.path()) {
+        "" => moli_web_mime::sniff_unknown_mime_type(&body_bytes, true),
+        known => known.to_owned(),
+    };
+    tracing::debug!(url = %url, content_type = %content_type, "🔍 loaded a local file subresource");
+    Ok(Response::from_head_and_lossy_body_bytes(
+        moli_fetch::ResponseHead {
+            status_text: None,
+            final_url: url.clone(),
+            status: 200,
+            headers: vec![(
+                "Content-Type".to_owned(),
+                moli_fetch::header_value_from_byte_string(&content_type)
+                    .expect("serialized MIME types contain ByteStrings"),
+            )],
+            request_cookie_report: None,
+            cookie_set_reports: Vec::new(),
+            redirected: false,
+            redirect_chain: Vec::new(),
+            from_cache: false,
+            cache_state: Default::default(),
+            negotiated_http_version: None,
+        },
+        body_bytes,
+    ))
+}
+
 /// Reads a local resource for consumers whose requests always use GET.
 pub(crate) fn local_url_response(url: &url::Url) -> Option<Response> {
     local_url_response_result(url, "GET").and_then(Result::ok)

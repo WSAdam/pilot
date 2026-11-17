@@ -813,3 +813,178 @@ async fn awaited_protocol_turn_preserves_thin_capture_policy_across_wakes() {
         .await
         .expect("awaited globals freshness test page should close");
 }
+
+/// pilot: a folder holding a page's stylesheet, classic script and 2x1 PNG,
+/// for the local file subresource tests below.
+fn local_file_page_fixture(label: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("pilot-file-page-{label}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("local file page folder should be created");
+    std::fs::write(dir.join("style.css"), "h1 { color: rgb(255, 0, 0); }")
+        .expect("local stylesheet should be written");
+    std::fs::write(dir.join("app.js"), "globalThis.appRan = true;")
+        .expect("local script should be written");
+    let image = moli_image::RgbaImage::try_new(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255])
+        .expect("valid two-pixel image");
+    std::fs::write(
+        dir.join("wide.png"),
+        moli_image::encode_png(&image)
+            .expect("fixture PNG should encode")
+            .bytes,
+    )
+    .expect("local image should be written");
+    dir
+}
+
+/// pilot: a page that loads a stylesheet, an image and a classic script, then
+/// marks the end of parsing (after the parser-blocking script ran or failed).
+fn local_file_page_html(stylesheet: &str, image: &str, script: &str) -> String {
+    format!(
+        concat!(
+            "<!doctype html><link rel=stylesheet href='{stylesheet}'><h1>Local</h1>",
+            "<img id=picture src='{image}' onload=\"globalThis.imageSettled = 'load'\" ",
+            "onerror=\"globalThis.imageSettled = 'error'\">",
+            "<script src='{script}'></script><script>globalThis.parsed = true;</script>"
+        ),
+        stylesheet = stylesheet,
+        image = image,
+        script = script,
+    )
+}
+
+/// pilot: once parsing ended and the image settled, the heading's color, whether
+/// the script ran, and the image's outcome and natural width.
+async fn local_file_page_state(
+    page: &RendererPageHandle,
+    loader: &ResourceRequestClient,
+) -> Option<serde_json::Value> {
+    page.run_async_command(RendererPageCommand::WaitForScriptTruthy {
+        expression: "globalThis.parsed === true && typeof globalThis.imageSettled === 'string'"
+            .to_owned(),
+        timeout_ms: 5_000,
+        loader: loader.clone(),
+    })
+    .await
+    .expect("the page should finish parsing and settle its image");
+    let (state, _) = page
+        .run_async_command(RendererPageCommand::EvaluateExpression {
+            expression: concat!(
+                "JSON.stringify({ color: getComputedStyle(document.querySelector('h1')).color, ",
+                "appRan: globalThis.appRan === true, image: globalThis.imageSettled, ",
+                "imageWidth: document.getElementById('picture').naturalWidth })"
+            )
+            .to_owned(),
+            await_promise: false,
+        })
+        .await
+        .expect("the local file page state should be observable");
+    renderer_json_value(state)
+}
+
+/// pilot: a resource request client with local file navigation on, as pilot
+/// configures it, that also fetches images.
+fn local_file_navigation_loader() -> crate::network::ResourceRequestClientOwner {
+    let mut config = moli_fetch::FetchConfig::default();
+    config.set_local_file_navigation(true);
+    let loader =
+        ResourceRequestClient::new(&config).expect("local file navigation resource request client");
+    loader.set_image_fetch_enabled(true);
+    loader
+}
+
+// 2026-11-17: a file:// document's stylesheet and image failed at the HTTP network transport and its classic script was refused before any fetch, so a local page showed unstyled, without its image and without running its script; Chrome loads all three from disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn file_document_loads_relative_file_stylesheet_script_and_image() {
+    let runtime = initialize_layout_test_runtime();
+    let loader = local_file_navigation_loader();
+    let dir = local_file_page_fixture("relative");
+    let document_url =
+        url::Url::from_file_path(dir.join("index.html")).expect("absolute document path");
+    let mut page = create_test_html_page(
+        &runtime,
+        &loader,
+        document_url,
+        &local_file_page_html("style.css", "wide.png", "app.js"),
+    )
+    .await;
+
+    assert_eq!(
+        local_file_page_state(&page, &loader).await,
+        Some(serde_json::json!(
+            r#"{"color":"rgb(255, 0, 0)","appRan":true,"image":"load","imageWidth":2}"#
+        ))
+    );
+
+    page.close_async()
+        .await
+        .expect("local file page should close");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// 2026-11-17: Chrome refuses an http(s) page's file:// stylesheet, script and image; loading a file:// document's subresources must not let a web page read local files.
+#[tokio::test(flavor = "multi_thread")]
+async fn http_document_cannot_load_file_subresources() {
+    let runtime = initialize_layout_test_runtime();
+    let loader = local_file_navigation_loader();
+    let dir = local_file_page_fixture("web-page");
+    let file_url = |name: &str| {
+        url::Url::from_file_path(dir.join(name))
+            .expect("absolute fixture path")
+            .to_string()
+    };
+    let mut page = create_test_html_page(
+        &runtime,
+        &loader,
+        url::Url::parse("http://example.test/index.html").expect("valid web page URL"),
+        &local_file_page_html(
+            &file_url("style.css"),
+            &file_url("wide.png"),
+            &file_url("app.js"),
+        ),
+    )
+    .await;
+
+    assert_eq!(
+        local_file_page_state(&page, &loader).await,
+        Some(serde_json::json!(
+            r#"{"color":"rgb(0, 0, 0)","appRan":false,"image":"error","imageWidth":0}"#
+        ))
+    );
+
+    page.close_async().await.expect("web page should close");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// 2026-11-17: Chrome without --allow-file-access-from-files refuses fetch() of a file:// URL even from a file:// document; only its classic subresource loads read local files.
+#[tokio::test(flavor = "multi_thread")]
+async fn file_document_fetch_of_a_file_url_is_still_refused() {
+    let runtime = initialize_layout_test_runtime();
+    let loader = local_file_navigation_loader();
+    let dir = local_file_page_fixture("fetch");
+    let mut page = create_test_html_page(
+        &runtime,
+        &loader,
+        url::Url::from_file_path(dir.join("index.html")).expect("absolute document path"),
+        "<!doctype html><h1>Local</h1>",
+    )
+    .await;
+
+    let (reply, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        page.run_async_command(RendererPageCommand::EvaluateExpression {
+            expression: "fetch('style.css').then(() => 'loaded', (error) => error.name)".to_owned(),
+            await_promise: true,
+        }),
+    )
+    .await
+    .expect("fetch() of a file URL should settle")
+    .expect("fetch() of a file URL should evaluate");
+    assert_eq!(
+        renderer_json_value(reply),
+        Some(serde_json::json!("TypeError"))
+    );
+
+    page.close_async()
+        .await
+        .expect("local file page should close");
+    let _ = std::fs::remove_dir_all(&dir);
+}

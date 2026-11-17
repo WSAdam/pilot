@@ -114,6 +114,90 @@ async fn local_file_navigation_to_a_missing_file_reports_file_not_found() {
     );
 }
 
+// 2026-11-17: pilot loaded a file:// document but its relative stylesheet and image failed at the HTTP network transport and its classic script was refused, so the page showed unstyled, without its image and without running its script; Chrome loads them from disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn file_document_loads_relative_file_stylesheet_script_and_image() {
+    let dir = std::env::temp_dir().join(format!("pilot-file-subresources-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("style.css"), "h1 { color: rgb(255, 0, 0); }").unwrap();
+    std::fs::write(dir.join("app.js"), "window.appRan = true;").unwrap();
+    let image = moli_image::RgbaImage::try_new(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255])
+        .expect("valid two-pixel image");
+    std::fs::write(
+        dir.join("wide.png"),
+        moli_image::encode_png(&image)
+            .expect("fixture PNG should encode")
+            .bytes,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("index.html"),
+        concat!(
+            "<!doctype html><link rel=stylesheet href=style.css><h1>Local</h1>",
+            "<img id=picture src=wide.png><script src=app.js></script>"
+        ),
+    )
+    .unwrap();
+    let file_url = url::Url::from_file_path(dir.join("index.html")).unwrap();
+
+    let mut ctx = TestContext::new_with_local_file_navigation_and_real_layout();
+    load_bc_with_session(&mut ctx, "BID-1", "TID-1", "SID-1", "about:blank");
+    ensure_initial_document_for_session(&mut ctx, Some("SID-1")).await;
+    ctx.process_async(json!({
+        "id": 90_123,
+        "method": "Page.setLifecycleEventsEnabled",
+        "sessionId": "SID-1",
+        "params": { "enabled": true },
+    }))
+    .await;
+    ctx.expect_result(90_123, json!({}), Some("SID-1"));
+    ctx.sent.clear();
+    ctx.navigate_with_page_events(json!({
+        "id": 90_124,
+        "method": "Page.navigate",
+        "sessionId": "SID-1",
+        "params": { "url": file_url.as_str() }
+    }))
+    .await;
+    let response = take_response_by_id(&mut ctx, 90_124);
+    assert!(response["error"].is_null(), "{response}");
+    assert!(response["result"]["errorText"].is_null(), "{response}");
+    wait_until_message(
+        &mut ctx,
+        "SID-1",
+        "file document load lifecycle",
+        |message| {
+            message["method"] == json!("Page.lifecycleEvent")
+                && message["params"]["frameId"] == json!("TID-1")
+                && message["params"]["name"] == json!("load")
+        },
+    )
+    .await;
+
+    ctx.process_and_wait_for_response_async(json!({
+        "id": 90_125,
+        "method": "Runtime.evaluate",
+        "sessionId": "SID-1",
+        "params": {
+            "expression": concat!(
+                "new Promise((resolve) => { const picture = document.getElementById('picture'); ",
+                "const report = () => resolve([getComputedStyle(document.querySelector('h1')).color, ",
+                "window.appRan === true, picture.naturalWidth]); ",
+                "if (picture.complete) { report(); } ",
+                "else { picture.onload = report; picture.onerror = report; } })"
+            ),
+            "awaitPromise": true,
+            "returnByValue": true,
+        },
+    }))
+    .await;
+    assert_eq!(
+        take_response_by_id(&mut ctx, 90_125)["result"]["result"]["value"],
+        json!(["rgb(255, 0, 0)", true, 2])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn continue_request_completes_paused_navigation_before_commit_events() {
     async fn page() -> impl axum::response::IntoResponse {

@@ -1153,6 +1153,124 @@ async fn text_stream_fetch_handles_local_data_stylesheet_urls() -> Result<()> {
     Ok(())
 }
 
+// 2026-11-17: a file:// document's stylesheets, scripts and images reached the HTTP transport, which refuses file URLs, so a local page loaded none of them; Chrome reads a file:// document's classic loads from disk, and only those.
+#[tokio::test(flavor = "multi_thread")]
+async fn file_document_loads_relative_file_stylesheet() -> Result<()> {
+    const TRANSPORT_REFUSAL: &str =
+        "URL scheme \"file\" is not supported by the HTTP network transport.";
+    let dir = std::env::temp_dir().join(format!(
+        "pilot-file-stylesheet-request-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir)?;
+    let stylesheet_path = dir.join("style.css");
+    std::fs::write(&stylesheet_path, "h1 { color: rgb(255, 0, 0); }")?;
+    let stylesheet = Url::from_file_path(&stylesheet_path).expect("absolute stylesheet path");
+    let file_document =
+        Url::from_file_path(dir.join("index.html")).expect("absolute document path");
+    let http_document = Url::parse("https://example.test/index.html")?;
+    let request = |document: &Url,
+                   request_mode: moli_fetch::RequestMode,
+                   metadata: BrowserRequestMetadata|
+     -> Result<Request> {
+        Ok(Request::get(stylesheet.as_str())?
+            .with_request_origin(moli_url::WebOrigin::from_url(document))
+            .with_initiator_url(document)
+            .with_page_network_policy()
+            .with_request_mode(request_mode)
+            .with_browser_request_metadata(metadata))
+    };
+    let mut config = FetchConfig::default();
+    config.set_local_file_navigation(true);
+    let loader = ResourceRequestClient::new(&config)?;
+
+    let response = loader
+        .fetch_text_stream(request(
+            &file_document,
+            moli_fetch::RequestMode::NoCors,
+            BrowserRequestMetadata::Style,
+        )?)
+        .await?;
+    assert_eq!(response.status, 200);
+    assert_eq!(response.final_url, stylesheet);
+    assert!(
+        response
+            .headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case("content-type") && value == b"text/css")
+    );
+    assert_eq!(response.body_text(), "h1 { color: rgb(255, 0, 0); }");
+
+    // Chrome without --allow-file-access-from-files refuses everything else:
+    // an http(s) page's file:// load, fetch() and every CORS-mode load.
+    for (label, refused) in [
+        (
+            "an http(s) document's stylesheet",
+            request(
+                &http_document,
+                moli_fetch::RequestMode::NoCors,
+                BrowserRequestMetadata::Style,
+            )?,
+        ),
+        (
+            "a file:// document's fetch()",
+            request(
+                &file_document,
+                moli_fetch::RequestMode::Cors,
+                BrowserRequestMetadata::Fetch,
+            )?,
+        ),
+        (
+            "a file:// document's no-cors fetch()",
+            request(
+                &file_document,
+                moli_fetch::RequestMode::NoCors,
+                BrowserRequestMetadata::Fetch,
+            )?,
+        ),
+        (
+            "a file:// document's crossorigin stylesheet",
+            request(
+                &file_document,
+                moli_fetch::RequestMode::Cors,
+                BrowserRequestMetadata::Style,
+            )?,
+        ),
+        (
+            "a file:// document's module script",
+            request(
+                &file_document,
+                moli_fetch::RequestMode::Cors,
+                BrowserRequestMetadata::Script,
+            )?,
+        ),
+    ] {
+        let error = loader.fetch_text_stream(refused).await.expect_err(label);
+        assert!(
+            format!("{error:#}").contains(TRANSPORT_REFUSAL),
+            "{label}: {error:#}"
+        );
+    }
+
+    // Moli's default keeps local file navigation, and so these loads, off.
+    let default_loader = ResourceRequestClient::new(&FetchConfig::default())?;
+    let error = default_loader
+        .fetch_text_stream(request(
+            &file_document,
+            moli_fetch::RequestMode::NoCors,
+            BrowserRequestMetadata::Style,
+        )?)
+        .await
+        .expect_err("local file subresources stay off without local file navigation");
+    assert!(
+        format!("{error:#}").contains(TRANSPORT_REFUSAL),
+        "{error:#}"
+    );
+
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn local_blob_method_errors_reach_streaming_and_callback_consumers() -> Result<()> {
     let loader = ResourceRequestClient::new(&FetchConfig::default())?;

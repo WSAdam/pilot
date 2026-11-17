@@ -746,6 +746,24 @@ impl TestContext {
         Self::from_conn(conn)
     }
 
+    /// pilot: `new_with_local_file_navigation` that also lays pages out and
+    /// fetches images, as pilot does, so a file:// document's stylesheet,
+    /// script and image all take effect.
+    pub fn new_with_local_file_navigation_and_real_layout() -> Self {
+        let mut fetch_config = FetchConfig::default();
+        fetch_config.set_local_file_navigation(true);
+        let conn = CdpConnection::new_with_initial_storage_partition_and_runtime_config(
+            CdpInitialStoragePartition::memory(),
+            NavigationRuntimeConfig::new(
+                fetch_config,
+                OptionalResourceFetchMask::IMAGE,
+                true,
+                LayoutPolicy::OnDemand,
+            ),
+        );
+        Self::from_conn(conn)
+    }
+
     pub fn new_with_layout_policy(layout_policy: LayoutPolicy) -> Self {
         let conn = CdpConnection::new_with_initial_storage_partition_and_runtime_config(
             CdpInitialStoragePartition::memory(),

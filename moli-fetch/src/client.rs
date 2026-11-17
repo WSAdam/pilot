@@ -199,6 +199,14 @@ impl FetchClientHandle {
     pub fn matches_config(&self, config: &FetchConfig) -> bool {
         &self.config == config
     }
+
+    /// pilot: whether local file navigation is on for this client's browser,
+    /// which also lets a file:// document load its classic file://
+    /// subresources (`FetchConfig::local_file_navigation`).
+    pub fn local_file_navigation(&self) -> bool {
+        self.config.local_file_navigation()
+    }
+
     pub fn http_proxy(&self) -> Option<&str> {
         self.config.http_proxy()
     }

@@ -308,7 +308,7 @@ impl ResourceRequestClient {
         request: Request,
     ) -> Result<Response> {
         let request = self.apply_network_policy(request)?;
-        if let Some(result) = local_text_response(&request) {
+        if let Some(result) = self.local_text_response(&request) {
             return result;
         }
         let timing_enabled = moli_trace::cdp_nav_timing_enabled();
@@ -472,7 +472,7 @@ impl ResourceRequestClient {
         F: FnOnce(Result<Response>) + Send + 'static,
     {
         let request = self.apply_network_policy(request)?;
-        if let Some(result) = local_text_response(&request) {
+        if let Some(result) = self.local_text_response(&request) {
             let task_runner = resource_load.task_runner();
             task_runner.spawn(async move {
                 resource_load.finish();
@@ -688,7 +688,7 @@ impl ResourceRequestClient {
     where
         F: FnOnce(Result<Response>) + Send + 'static,
     {
-        if let Some(result) = local_text_response(&request) {
+        if let Some(result) = self.local_text_response(&request) {
             callback(result);
             return Ok(());
         }
@@ -702,7 +702,7 @@ impl ResourceRequestClient {
         request: Request,
         cancel_handle: FetchCancelHandle,
     ) -> Result<StreamingRawResponse> {
-        if let Some(response) = local_text_response(&request) {
+        if let Some(response) = self.local_text_response(&request) {
             return streaming_raw_response_from_local_response(response?);
         }
 
@@ -738,7 +738,7 @@ impl ResourceRequestClient {
         request: Request,
         cancel_handle: FetchCancelHandle,
     ) -> Result<NetworkFetchResult<StreamingRawResponse>> {
-        if let Some(response) = local_text_response(&request) {
+        if let Some(response) = self.local_text_response(&request) {
             return Ok(NetworkFetchResult::without_request_observation(
                 streaming_raw_response_from_local_response(response?)?,
             ));
@@ -1070,6 +1070,23 @@ impl ResourceRequestClient {
         self.page_network_policy.set_cache_disabled(disabled);
     }
 
+    /// Resolves a request that never reaches the HTTP transport: renderer-owned
+    /// data: and blob: URLs, and (pilot) a file:// document's classic file://
+    /// subresources while local file navigation is on. Everything else, file://
+    /// URLs included, falls through to the transport, which refuses non-HTTP(S).
+    fn local_text_response(&self, request: &Request) -> Option<Result<Response>> {
+        if let Some(result) =
+            crate::network_host::local_url_response_result(&request.url, &request.method)
+        {
+            return Some(result.map_err(anyhow::Error::msg));
+        }
+        let loads_local_file = is_local_file_subresource_request(request)
+            && self.resource_runtime.client().local_file_navigation();
+        loads_local_file.then(|| {
+            crate::network_host::local_file_response(&request.url).map_err(anyhow::Error::msg)
+        })
+    }
+
     fn apply_network_policy(&self, mut request: Request) -> Result<Request> {
         request.browser_origin()?;
         if let Some(browser_site_context) = self.browser_site_context.as_deref() {
@@ -1140,9 +1157,31 @@ fn streaming_raw_response_from_cached_subresource(
     streaming_raw_response_from_head_and_body(head, response.clone_body_bytes())
 }
 
-fn local_text_response(request: &Request) -> Option<Result<Response>> {
-    crate::network_host::local_url_response_result(&request.url, &request.method)
-        .map(|result| result.map_err(anyhow::Error::msg))
+/// pilot: whether a request is a classic subresource load of a local file by a
+/// file:// document, which Chrome serves from disk: a no-cors GET of a
+/// stylesheet, classic script or image whose initiator is a file:// document.
+/// Fetch and XHR of file:// (refused earlier, at their API boundary), workers
+/// and CORS-mode loads (module scripts, crossorigin images and stylesheets)
+/// stay refused, as in Chrome without --allow-file-access-from-files, and so
+/// does a file:// load started by any document that is not itself a file://
+/// document, such as an http(s) page.
+fn is_local_file_subresource_request(request: &Request) -> bool {
+    request.url.scheme() == "file"
+        && request.method == "GET"
+        && request.request_mode == moli_fetch::RequestMode::NoCors
+        && matches!(
+            request.browser_request_metadata(),
+            Some(
+                moli_fetch::BrowserRequestMetadata::Image
+                    | moli_fetch::BrowserRequestMetadata::Script
+                    | moli_fetch::BrowserRequestMetadata::Style
+            )
+        )
+        && request
+            .cookie_context
+            .initiator_url
+            .as_ref()
+            .is_some_and(|initiator| initiator.scheme() == "file")
 }
 
 fn streaming_raw_response_from_local_response(response: Response) -> Result<StreamingRawResponse> {
