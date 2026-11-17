@@ -708,10 +708,13 @@ fn queue_resize_observer_delivery<'s>(
     schedule_scope_callback(scope, resize_observer_flush_callback, None);
 }
 
-pub(crate) fn queue_resize_observer_checks(scope: &mut v8::PinScope<'_, '_>) {
+/// Queues a check of every observed target in this global. Returns whether
+/// any target was queued (pilot: a viewport resize builds layout only then).
+pub(crate) fn queue_resize_observer_checks(scope: &mut v8::PinScope<'_, '_>) -> bool {
     let Some(registry) = global_queue_array(scope, RESIZE_OBSERVER_REGISTRY_SLOT) else {
-        return;
+        return false;
     };
+    let mut queued_any = false;
     let observers = (0..registry.length())
         .filter_map(|index| registry.get_index(scope, index))
         .filter_map(|value| v8::Local::<v8::Object>::try_from(value).ok())
@@ -738,7 +741,9 @@ pub(crate) fn queue_resize_observer_checks(scope: &mut v8::PinScope<'_, '_>) {
         }
         set_resize_observer_pending_targets(scope, observer, pending);
         queue_resize_observer_delivery(scope, observer);
+        queued_any = true;
     }
+    queued_any
 }
 
 fn remove_resize_observer_from_registry(

@@ -370,6 +370,21 @@ impl JsContextHost {
                     context_scope,
                     global,
                 );
+                // pilot: a viewport resize changes observed boxes without any
+                // DOM mutation, so ResizeObserver checks are queued here too.
+                // Observers read only a layout something else built, so under
+                // Live layout the page is laid out at the new size first;
+                // otherwise a page nothing had measured read 0x0 before and
+                // after, and an observer on document.body never fired (MCP
+                // browser_resize).
+                if self.window_document_owner_is_current_for_dispatch_scope(
+                    target.owner(),
+                    target.dispatch_scope(),
+                ) && crate::context_bootstrap::queue_resize_observer_checks(context_scope)
+                    && self.layout_policy().rebuilds_stale_layout()
+                {
+                    let _ = self.ensure_initial_layout();
+                }
             }
 
             if !self.window_document_owner_is_current_for_dispatch_scope(
