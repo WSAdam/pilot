@@ -2809,14 +2809,18 @@ async fn device_metrics_override_updates_layout_metrics() {
                 "clientWidth": 1280,
                 "clientHeight": 720,
             },
+            // pilot: Chrome reports the page scale (1 on a desktop at any
+            // device pixel ratio) and the visual viewport's CSS size here, not
+            // the device pixel ratio; Playwright builds page.screenshot()'s
+            // clip from these (Build 8).
             "visualViewport": {
                 "offsetX": 0,
                 "offsetY": 0,
                 "pageX": 0.0,
                 "pageY": 0.0,
-                "clientWidth": 1280,
-                "clientHeight": 720,
-                "scale": 2.0,
+                "clientWidth": 1280.0,
+                "clientHeight": 720.0,
+                "scale": 1.0,
                 "zoom": 1,
             },
             "contentSize": { "x": 0, "y": 0, "width": 1280.0, "height": 720.0 },
@@ -2831,9 +2835,9 @@ async fn device_metrics_override_updates_layout_metrics() {
                 "offsetY": 0,
                 "pageX": 0.0,
                 "pageY": 0.0,
-                "clientWidth": 1280,
-                "clientHeight": 720,
-                "scale": 2.0,
+                "clientWidth": 1280.0,
+                "clientHeight": 720.0,
+                "scale": 1.0,
                 "zoom": 1,
             },
             "cssContentSize": { "x": 0, "y": 0, "width": 1280.0, "height": 720.0 },
