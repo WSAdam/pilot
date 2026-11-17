@@ -154,6 +154,8 @@ pub(super) fn metrics_from_cdp(
             scale,
             native_device_pixel_ratio: base.device_pixel_ratio,
             viewport,
+            // pilot: set by the Live-layout caller, which admits mobile=true.
+            mobile: false,
         }),
         outer_width: base.outer_width,
         outer_height: base.outer_height,

@@ -117,6 +117,7 @@ mod v8_execution_watchdog;
 mod v8_finalizer;
 pub(crate) mod v8_platform;
 mod v8_traced_webidl_callback;
+mod viewport_meta;
 mod wasm_module_support;
 mod web_storage_handles;
 pub(crate) mod webidl;

@@ -183,6 +183,11 @@ impl ScriptVm {
             .visual_state_token(document, viewport, base_background_color)
     }
 
+    /// pilot: how a phone shows the main Document, while one is emulated.
+    pub(crate) fn mobile_viewport(&self) -> Option<crate::viewport_meta::MobileViewport> {
+        self._context_host.borrow().mobile_viewport()
+    }
+
     #[cfg(test)]
     pub(crate) fn visual_resource_generation_handle_for_test(
         &self,

@@ -427,3 +427,49 @@ async fn emulated_view_capture_clips_background_images_over_a_transparent_base()
     let image = moli_image::decode_png(&png(&frame["data"])).unwrap();
     assert!(image.rgba.iter().all(|byte| *byte == 0));
 }
+
+// 2026-11-17: a phone screenshot showed the left 390px of the page unscaled; Chrome draws the whole 980px layout of a page without a viewport meta tag scaled into the 390px screen.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_screenshot_scales_the_980px_layout_into_the_screen() {
+    let mut ctx = TestContext::new_with_layout_policy(moli_core::LayoutPolicy::Live);
+    install_active_screenshot_page(
+        &mut ctx,
+        "BID-VIEW-CAPTURE",
+        "TID-VIEW-CAPTURE",
+        SESSION,
+        &screenshot_data_url(
+            r#"<!doctype html><style>
+                html { background: blue; scrollbar-width: none }
+                body { margin: 0 }
+                #stripe { width: 490px; height: 100px; background: red }
+            </style><div id="stripe"></div>"#,
+        ),
+    )
+    .await;
+    set_metrics(
+        &mut ctx,
+        json!({"width": 390, "height": 844, "mobile": true}),
+    )
+    .await;
+
+    let screenshot = command(&mut ctx, "Page.captureScreenshot", json!({})).await;
+    let image = png(&screenshot["data"]);
+    assert_png_dimensions(&image, 390, 844);
+    // At scale 390/980 the 490x100 stripe covers 195x40 screen pixels.
+    assert_eq!(decode_png_pixel(&image, 150, 20), [255, 0, 0, 255]);
+    assert_eq!(decode_png_pixel(&image, 250, 20), [0, 0, 255, 255]);
+    assert_eq!(decode_png_pixel(&image, 150, 60), [0, 0, 255, 255]);
+
+    // The capture laid the page out at its own 980px layout viewport, so the
+    // geometry it published is the one scripts read.
+    let layout = command(
+        &mut ctx,
+        "Runtime.evaluate",
+        json!({
+            "expression": "[innerWidth, document.documentElement.clientWidth, document.getElementById('stripe').getBoundingClientRect().width]",
+            "returnByValue": true
+        }),
+    )
+    .await;
+    assert_eq!(layout["result"]["value"], json!([980, 980, 490]));
+}

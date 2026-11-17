@@ -97,7 +97,8 @@ test('Playwright MCP drives pilot emulating a phone (--device)', { timeout: 90_0
   const client = await connectMcp(['--executable-path', pilotBin, '--isolated', '--headless', '--device', 'iPhone 15']);
   try {
     await callTool(client, 'browser_navigate', { url: `${fixture.baseUrl}/greeting.html` });
-    assert.match(await callTool(client, 'browser_evaluate', { function: '() => innerWidth' }), /393/);
+    // greeting.html has no viewport meta tag, so a phone lays it out at 980px, as Chrome does.
+    assert.match(await callTool(client, 'browser_evaluate', { function: '() => innerWidth' }), /980/);
     const snapshot = await callTool(client, 'browser_snapshot', {});
     await callTool(client, 'browser_type', { element: 'Name textbox', target: refFor(snapshot, 'textbox "Name"'), text: 'phone' });
     await callTool(client, 'browser_click', { element: 'Greet button', target: refFor(snapshot, 'button "Greet"') });

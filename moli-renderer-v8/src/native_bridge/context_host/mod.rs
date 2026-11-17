@@ -894,6 +894,13 @@ pub(crate) struct JsContextHost {
     webdriver_bidi_file_prompt_handler_stack: Vec<String>,
     emulated_media: crate::protocol_types::EmulatedMediaOverrides,
     viewport_surface: Option<crate::protocol_types::ViewportSurface>,
+    /// pilot: under phone emulation, the main Document's viewport meta
+    /// description with the Document and DOM version it was read at.
+    viewport_meta_description:
+        Cell<Option<(DomHandle, u64, crate::viewport_meta::ViewportDescription)>>,
+    /// pilot: the phone viewport last resolved from it, so that a tag change
+    /// reaches style as a viewport resize does.
+    resolved_mobile_viewport: Cell<Option<crate::viewport_meta::MobileViewport>>,
     document_activity: moli_page_types::DocumentActivity,
     initial_empty_main_document: bool,
     subframe_loading_disabled_documents: Rc<RefCell<HashMap<DomHandle, usize>>>,

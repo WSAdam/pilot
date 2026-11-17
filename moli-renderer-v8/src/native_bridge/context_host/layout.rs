@@ -83,7 +83,7 @@ impl JsContextHost {
             // pilot: Playwright's setViewportSize changes no DOM and no
             // scroll offset; without this a Live layout kept the old width.
             viewport: self
-                .viewport_surface()
+                .layout_viewport_surface()
                 .map(|surface| (surface.inner_width, surface.inner_height))
                 .unwrap_or_default(),
         }
@@ -158,7 +158,9 @@ impl JsContextHost {
     }
 
     pub(crate) fn layout_viewport_for_document(&self, document: DomHandle) -> LayoutViewport {
-        let surface = self.viewport_surface;
+        // pilot: a phone lays the main Document out at its viewport meta
+        // width (980px without a tag), not at the screen width.
+        let surface = self.layout_viewport_surface();
         let device_pixel_ratio = surface
             .map(|surface| surface.device_pixel_ratio as f32)
             .unwrap_or(DEFAULT_WINDOW_SURFACE_PROFILE.device_pixel_ratio as f32);

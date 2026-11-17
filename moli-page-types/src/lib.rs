@@ -3172,6 +3172,10 @@ pub struct EmulatedView {
     /// The compositor keeps its native DPR even when CSS reports an override.
     pub native_device_pixel_ratio: f64,
     pub viewport: Option<EmulatedViewport>,
+    /// pilot: phone emulation (`setDeviceMetricsOverride` `mobile: true`).
+    /// The main Document is laid out at the width its `<meta name=viewport>`
+    /// asks for (980px without one) and shown scaled to fit the screen.
+    pub mobile: bool,
 }
 
 /// Page-coordinate origin and scale of a forced compositor viewport. Its

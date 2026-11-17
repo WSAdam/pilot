@@ -28,15 +28,34 @@ fn window_inner_surface_dimension<'s>(
             })
             .unwrap_or(fallback);
     }
-    host.viewport_surface()
-        .map(|viewport| {
-            f64::from(if width {
-                viewport.inner_width
-            } else {
-                viewport.inner_height
-            })
+    // pilot: under phone emulation the window is the screen at the minimum
+    // page scale (980px wide for a page without a viewport meta tag).
+    host.window_inner_size()
+        .map(|(inner_width, inner_height)| {
+            f64::from(if width { inner_width } else { inner_height })
         })
         .unwrap_or(fallback)
+}
+
+/// pilot: `visualViewport.width`, `height` and `scale`. Under phone
+/// emulation the main Document's visual viewport is the screen at the initial
+/// page scale (980px at scale 390/980 for a page without a viewport meta tag
+/// on a 390px phone); otherwise it is the inner surface at scale 1.
+pub(in crate::context_bootstrap) fn window_visual_viewport_metrics<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Object>,
+) -> (f64, f64, f64) {
+    if window_child_context_handle(scope, receiver).is_none()
+        && let Some(host_ptr) = window_host_ptr(scope, receiver)
+        && let Some(mobile) = unsafe { &*host_ptr }.mobile_viewport()
+    {
+        return (mobile.visual_width, mobile.visual_height, mobile.page_scale);
+    }
+    (
+        window_inner_surface_width(scope, receiver),
+        window_inner_surface_height(scope, receiver),
+        DEFAULT_WINDOW_SURFACE_PROFILE.visual_viewport_scale,
+    )
 }
 
 pub(in crate::context_bootstrap) fn window_inner_surface_width<'s>(

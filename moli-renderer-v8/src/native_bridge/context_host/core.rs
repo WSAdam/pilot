@@ -415,6 +415,8 @@ impl JsContextHost {
             webdriver_bidi_file_prompt_handler_stack: Vec::new(),
             emulated_media: crate::protocol_types::EmulatedMediaOverrides::default(),
             viewport_surface: None,
+            viewport_meta_description: Cell::new(None),
+            resolved_mobile_viewport: Cell::new(None),
             document_activity: moli_page_types::DocumentActivity::default(),
             initial_empty_main_document: false,
             subframe_loading_disabled_documents: Rc::default(),

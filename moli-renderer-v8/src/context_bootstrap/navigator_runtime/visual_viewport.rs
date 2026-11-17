@@ -100,15 +100,16 @@ pub(in crate::context_bootstrap) fn build_window_visual_viewport<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     window: v8::Local<'s, v8::Object>,
 ) -> Result<v8::Local<'s, v8::Object>> {
-    let profile = &DEFAULT_WINDOW_SURFACE_PROFILE;
+    let (width, height, scale) =
+        super::super::window_accessors::window_visual_viewport_metrics(scope, window);
     let viewport = VisualViewportObjectDeclaration {
         offset_left: 0.0,
         offset_top: 0.0,
         page_left: 0.0,
         page_top: 0.0,
-        width: super::super::window_accessors::window_inner_surface_width(scope, window),
-        height: super::super::window_accessors::window_inner_surface_height(scope, window),
-        scale: profile.visual_viewport_scale,
+        width,
+        height,
+        scale,
     }
     .bind(scope)?;
     initialize_simple_event_target(scope, viewport);
@@ -157,7 +158,7 @@ fn visual_viewport_attribute_getter_callback<'s>(
     };
     if matches!(
         slot,
-        VISUAL_VIEWPORT_WIDTH_SLOT | VISUAL_VIEWPORT_HEIGHT_SLOT
+        VISUAL_VIEWPORT_WIDTH_SLOT | VISUAL_VIEWPORT_HEIGHT_SLOT | VISUAL_VIEWPORT_SCALE_SLOT
     ) {
         // A borrowed getter belongs to its receiver's Window, even when the
         // function was obtained from another realm's VisualViewport prototype.
@@ -177,17 +178,22 @@ fn visual_viewport_attribute_getter_callback<'s>(
                 .is_some()
             },
         );
-        if !current {
+        if current {
+            // pilot: a phone shows its layout at a page scale that follows
+            // the current Document's viewport meta tag.
+            let (width, height, scale) =
+                super::super::window_accessors::window_visual_viewport_metrics(scope, window);
+            rv.set_double(match slot {
+                VISUAL_VIEWPORT_WIDTH_SLOT => width,
+                VISUAL_VIEWPORT_HEIGHT_SLOT => height,
+                _ => scale,
+            });
+            return;
+        }
+        if slot != VISUAL_VIEWPORT_SCALE_SLOT {
             rv.set_double(0.0);
             return;
         }
-        let value = if slot == VISUAL_VIEWPORT_WIDTH_SLOT {
-            super::super::window_accessors::window_inner_surface_width(scope, window)
-        } else {
-            super::super::window_accessors::window_inner_surface_height(scope, window)
-        };
-        rv.set_double(value);
-        return;
     }
     rv.set(
         get_private_value(scope, args.this(), slot).unwrap_or_else(|| v8::undefined(scope).into()),

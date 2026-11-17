@@ -38,11 +38,11 @@ pub(crate) use surface::{
 };
 pub(super) use surface::{
     window_custom_elements_getter, window_device_pixel_ratio_getter, window_frames_getter,
-    window_inner_height_getter, window_inner_surface_height, window_inner_surface_width,
-    window_inner_width_getter, window_navigator_getter, window_opener_setter,
-    window_outer_height_getter, window_outer_width_getter, window_performance_getter,
-    window_screen_getter, window_scroll_x_getter, window_scroll_y_getter, window_self_getter,
-    window_speech_synthesis_getter, window_visual_viewport_getter, window_window_getter,
+    window_inner_height_getter, window_inner_width_getter, window_navigator_getter,
+    window_opener_setter, window_outer_height_getter, window_outer_width_getter,
+    window_performance_getter, window_screen_getter, window_scroll_x_getter,
+    window_scroll_y_getter, window_self_getter, window_speech_synthesis_getter,
+    window_visual_viewport_getter, window_visual_viewport_metrics, window_window_getter,
 };
 pub(crate) use values::{
     window_closed_value, window_frames_value, window_length_value, window_opener_value,

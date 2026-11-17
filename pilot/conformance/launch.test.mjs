@@ -115,7 +115,9 @@ test('a phone device descriptor opens a context at the phone\'s size', { timeout
     const context = await browser.newContext({ ...devices['iPhone 13'] });
     const page = await context.newPage();
     await driveGreeting(page);
-    assert.deepEqual(await page.evaluate(() => [innerWidth, innerHeight, devicePixelRatio]), [390, 664, 3]);
+    // greeting.html has no viewport meta tag, so a phone lays it out at 980px,
+    // as Chrome does (980 * 664 / 390 = 1668.5 rounds up to 1669).
+    assert.deepEqual(await page.evaluate(() => [innerWidth, innerHeight, devicePixelRatio]), [980, 1669, 3]);
   } finally {
     await browser.close();
   }

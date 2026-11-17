@@ -864,7 +864,9 @@ impl JsContextHost {
     }
 
     pub(crate) fn style_viewport(&self) -> StyleViewport {
-        self.viewport_surface
+        // pilot: media queries and viewport units see the layout viewport,
+        // which a phone sizes from the page's viewport meta tag.
+        self.layout_viewport_surface()
             .map(StyleViewport::from_viewport_surface)
             .unwrap_or_else(|| {
                 StyleViewport::new(
@@ -880,6 +882,67 @@ impl JsContextHost {
 
     pub(crate) fn viewport_surface(&self) -> Option<crate::protocol_types::ViewportSurface> {
         self.viewport_surface
+    }
+
+    /// pilot: how a phone shows the main Document while
+    /// `Emulation.setDeviceMetricsOverride` emulates one (`mobile: true`).
+    /// Chrome lays the page out at the width its `<meta name=viewport>` asks
+    /// for, 980px without one, and scales it to fit the screen. `None` on
+    /// desktop, which ignores the tag. The tag is read again after every DOM
+    /// change, so a rewritten Document (`page.setContent`) follows its own.
+    pub(crate) fn mobile_viewport(&self) -> Option<crate::viewport_meta::MobileViewport> {
+        let surface = self.viewport_surface?;
+        if !surface.emulated_view.is_some_and(|view| view.mobile) {
+            return None;
+        }
+        let document = self.document_handle();
+        let dom_version = self.dom_host().dom_version();
+        let description = match self.viewport_meta_description.get() {
+            Some((cached_document, cached_version, description))
+                if cached_document == document && cached_version == dom_version =>
+            {
+                description
+            }
+            _ => {
+                let description =
+                    crate::viewport_meta::document_viewport_description(self.dom_host(), document);
+                self.viewport_meta_description
+                    .set(Some((document, dom_version, description)));
+                description
+            }
+        };
+        let viewport = description.resolve(surface.inner_width, surface.inner_height);
+        if self.resolved_mobile_viewport.replace(Some(viewport)) != Some(viewport) {
+            // A tag change resizes the layout viewport without a new surface;
+            // style must see it as it sees a resize.
+            self.invalidate_layout_inputs(LayoutInputChange::StyleEnvironment);
+        }
+        Some(viewport)
+    }
+
+    /// pilot: the surface the main Document lays out in. Under phone
+    /// emulation its inner size is the layout viewport, not the screen.
+    pub(crate) fn layout_viewport_surface(&self) -> Option<crate::protocol_types::ViewportSurface> {
+        let surface = self.viewport_surface?;
+        Some(match self.mobile_viewport() {
+            Some(mobile) => crate::protocol_types::ViewportSurface {
+                inner_width: mobile.layout_width,
+                inner_height: mobile.layout_height,
+                ..surface
+            },
+            None => surface,
+        })
+    }
+
+    /// pilot: the main Document's `window.innerWidth`/`innerHeight`.
+    pub(crate) fn window_inner_size(&self) -> Option<(u32, u32)> {
+        let surface = self.viewport_surface?;
+        Some(
+            self.mobile_viewport()
+                .map_or((surface.inner_width, surface.inner_height), |mobile| {
+                    (mobile.frame_width, mobile.frame_height)
+                }),
+        )
     }
 
     pub(crate) fn document_base_url_for_handle(&self, document: DomHandle) -> url::Url {

@@ -208,6 +208,24 @@ impl RendererCaptureScreenshotRequest {
 }
 
 impl PageVm {
+    /// pilot: the emulated surface, the viewport the main Document lays out
+    /// in, and the page scale the screen shows that layout at. A phone lays
+    /// the page out at its viewport meta width (980px without a tag) and
+    /// scales it to fit the screen; elsewhere they are the surface and 1.
+    fn layout_presentation(&self) -> (ViewportSurface, PaintViewport, f64) {
+        let surface = self.document_settings.viewport_surface.unwrap_or_default();
+        let mobile = self.vm().mobile_viewport();
+        let (width, height) = mobile
+            .map_or((surface.inner_width, surface.inner_height), |mobile| {
+                (mobile.layout_width, mobile.layout_height)
+            });
+        (
+            surface,
+            PaintViewport::new(width, height, surface.device_pixel_ratio as f32),
+            mobile.map_or(1.0, |mobile| mobile.page_scale),
+        )
+    }
+
     /// Captures an explicit screenshot. These demands always execute a fresh
     /// paint pass and never carry screencast state.
     pub(super) fn capture_screenshot(
@@ -215,8 +233,8 @@ impl PageVm {
         request: RendererCaptureScreenshotRequest,
     ) -> anyhow::Result<RendererCaptureScreenshotReply> {
         self.flush_page_action_window(moli_action_window::ActionBarrier::Screenshot)?;
-        let paint_capture = request
-            .paint_capture_request(self.document_settings.viewport_surface.unwrap_or_default())?;
+        let (surface, _, page_scale) = self.layout_presentation();
+        let paint_capture = request.paint_capture_request(surface, page_scale)?;
         self.capture_image(
             request.format,
             request.quality,
@@ -254,12 +272,7 @@ impl PageVm {
         if self.layout_configuration.policy == LayoutPolicy::Mock {
             return Ok(RendererCaptureScreencastFrameReply::LayoutDisabled);
         }
-        let surface = self.document_settings.viewport_surface.unwrap_or_default();
-        let viewport = PaintViewport::new(
-            surface.inner_width,
-            surface.inner_height,
-            surface.device_pixel_ratio as f32,
-        );
+        let (surface, viewport, page_scale) = self.layout_presentation();
         let visual_state_before = self.vm().visual_state_token(
             self.document_lifecycle.identity(),
             viewport,
@@ -270,7 +283,7 @@ impl PageVm {
         }
         before_layout();
         let paint_capture = PaintCaptureRequest {
-            region: paint_viewport_region(surface, ViewportCapture::Widget)?,
+            region: paint_viewport_region(surface, ViewportCapture::Widget, page_scale)?,
             include_backgrounds: true,
             include_viewport_controls: true,
             base_background_color: paint_background_color(request.base_background_color),
@@ -321,12 +334,10 @@ impl PageVm {
         if self.layout_configuration.policy == LayoutPolicy::Mock {
             return Ok(RendererImageCaptureOutcome::LayoutDisabled);
         }
-        let surface = self.document_settings.viewport_surface.unwrap_or_default();
-        let viewport = PaintViewport::new(
-            surface.inner_width,
-            surface.inner_height,
-            surface.device_pixel_ratio as f32,
-        );
+        // pilot: lay out at the Document's own layout viewport. A capture at
+        // the screen size would publish a layout of another width under phone
+        // emulation, and later geometry reads would see it.
+        let (_, viewport, _) = self.layout_presentation();
         let layout_started = profile_enabled.then(Instant::now);
         let Some(snapshot) =
             self.vm_mut()
@@ -491,6 +502,7 @@ impl RendererCaptureScreenshotRequest {
     fn paint_capture_request(
         &self,
         surface: ViewportSurface,
+        page_scale: f64,
     ) -> anyhow::Result<PaintCaptureRequest> {
         let include_viewport_controls = matches!(
             self.region,
@@ -498,7 +510,7 @@ impl RendererCaptureScreenshotRequest {
         );
         let region = match self.region {
             RendererScreenshotRegion::Viewport => {
-                paint_viewport_region(surface, ViewportCapture::Surface)?
+                paint_viewport_region(surface, ViewportCapture::Surface, page_scale)?
             }
             RendererScreenshotRegion::FullDocument => moli_layout::PaintCaptureRegion::FullDocument,
             RendererScreenshotRegion::ViewportClip(clip)
@@ -547,6 +559,7 @@ enum ViewportCapture {
 fn paint_viewport_region(
     surface: ViewportSurface,
     capture: ViewportCapture,
+    page_scale: f64,
 ) -> anyhow::Result<PaintCaptureRegion> {
     let Some(view) = surface.emulated_view else {
         return Ok(PaintCaptureRegion::Viewport);
@@ -562,6 +575,10 @@ fn paint_viewport_region(
         }
         ViewportCapture::Widget => (view.scale, f64::from(view.width), f64::from(view.height)),
     };
+    // pilot: the capture keeps the screen's size; a phone draws its layout
+    // viewport into it at the page scale (390/980 for a page without a
+    // viewport meta tag on a 390px phone). 1 outside phone emulation.
+    let scale = scale * page_scale;
     let (transform, scroll_scale) = if let Some(viewport) = view.viewport {
         // Blink applies the preview scale first, then the page-coordinate
         // viewport offset and scale. Resolve scroll compensation during layout.

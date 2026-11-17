@@ -1047,10 +1047,13 @@ fn start_device_metrics_override_command(
             ));
         }
     };
-    // pilot: under Live layout, mobile emulation lays pages out at the device
-    // width (no viewport-meta processing yet), so Playwright MCP's --device
-    // works. OnDemand keeps rejecting it.
-    if conn.layout_policy().rebuilds_stale_layout() {
+    // pilot: under Live layout, mobile emulation is a phone: the renderer lays
+    // the page out at the width its viewport meta tag asks for (980px without
+    // one), as Chrome does, so Playwright MCP's --device works. OnDemand keeps
+    // rejecting it.
+    let live_layout = conn.layout_policy().rebuilds_stale_layout();
+    let mobile = params.mobile && live_layout;
+    if live_layout {
         params.mobile = false;
     }
     let owner = CommandOwnerScope::capture(conn, cmd.session_id);
@@ -1072,7 +1075,7 @@ fn start_device_metrics_override_command(
             base.outer_height = geometry.height;
         }
     }
-    let metrics = match device::metrics_from_cdp(params, previous.as_ref(), &base) {
+    let mut metrics = match device::metrics_from_cdp(params, previous.as_ref(), &base) {
         Ok(metrics) => metrics,
         Err(error) => {
             return EmulationCommandTaskStep::Complete(CommandOutputPlan::from_devtools_error(
@@ -1080,6 +1083,9 @@ fn start_device_metrics_override_command(
             ));
         }
     };
+    if let Some(view) = metrics.view.as_mut() {
+        view.mobile = mobile;
+    }
     if conn.browser_context.is_none()
         && conn
             .target_owner_identity_for_session(cmd.session_id)
