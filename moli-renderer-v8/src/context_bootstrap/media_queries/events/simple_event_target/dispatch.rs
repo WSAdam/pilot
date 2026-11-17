@@ -228,12 +228,16 @@ fn invoke_simple_event_listeners<'s>(
         if listener.handler_slot.is_some()
             && let Some(returned) = outcome.value
         {
-            apply_handler_return_value(
-                scope,
-                event,
-                v8::Local::new(scope, &returned),
-                error_arguments.is_some(),
-            );
+            let returned = v8::Local::new(scope, &returned);
+            // An onbeforeunload handler's return value on a BeforeUnloadEvent
+            // asks to stay instead of following `return false`.
+            if event_type != "beforeunload"
+                || !crate::context_bootstrap::process_before_unload_handler_return_value(
+                    scope, event, returned,
+                )
+            {
+                apply_handler_return_value(scope, event, returned, error_arguments.is_some());
+            }
         }
         set_event_internal_flag(scope, event, EVENT_PASSIVE_SLOT, false);
         if event_stop_immediate_propagation(scope, event) {

@@ -56,15 +56,6 @@ struct PageTransitionEventInitDeclaration {
     persisted: bool,
 }
 
-#[derive(WebApiObject)]
-#[webapi(plain)]
-struct BeforeUnloadEventInitDeclaration {
-    #[webapi(data_property, enumerable)]
-    bubbles: bool,
-    #[webapi(data_property, enumerable)]
-    cancelable: bool,
-}
-
 #[derive(Default, WebApiObject)]
 #[webapi(fragment, prototype = "PointerEvent", enumerable)]
 struct SecurePointerEventPrototypeRuntimeDeclaration {
@@ -92,24 +83,27 @@ pub(crate) fn construct_original_event<'s>(
     Some(event)
 }
 
-/// A trusted `beforeunload` event. Chrome dispatches it cancelable: a
-/// listener asks to stay with `preventDefault()` or a `returnValue`.
+/// A trusted, cancelable `beforeunload` BeforeUnloadEvent, as Chrome
+/// dispatches it. A listener asks to stay with `preventDefault()` or a
+/// non-empty `returnValue`, an `onbeforeunload` handler by returning a value.
+/// BeforeUnloadEvent has no public constructor, so the native state is
+/// branded directly and wrapped with the intrinsic prototype.
 pub(in crate::context_bootstrap) fn construct_original_beforeunload_event<'s>(
     scope: &mut v8::PinScope<'s, '_>,
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let event_ctor =
-        super::exposed_interfaces::ensure_intrinsic_interface_constructor(scope, "Event").ok()?;
-    let event_type = v8_string(scope, "beforeunload")?;
-    let init = BeforeUnloadEventInitDeclaration::new(false, true)
-        .bind(scope)
-        .ok()?;
-    let event = {
-        let try_catch = std::pin::pin!(v8::TryCatch::new(scope));
-        let scope = try_catch.init();
-        event_ctor.new_instance(&scope, &[event_type.into(), init.into()])
-    }?;
-    mark_event_trusted(scope, event);
-    Some(event)
+    let event = new_event_state(scope);
+    base::initialize_event_object(scope, event, "beforeunload", false, true);
+    let empty_return_value = v8str(scope, "");
+    set_private_value(
+        scope,
+        event,
+        methods::BEFORE_UNLOAD_EVENT_RETURN_VALUE_SLOT,
+        empty_return_value.into(),
+    );
+    web_api_interfaces::initialize(scope, event, "BeforeUnloadEvent").ok()?;
+    let wrapper = new_event_wrapper(scope, event)?;
+    mark_event_trusted(scope, wrapper);
+    Some(wrapper)
 }
 
 pub(in crate::context_bootstrap) fn new_uninitialized_text_event<'s>(
@@ -350,12 +344,14 @@ pub(super) use base::{
 };
 pub(in crate::context_bootstrap) use init::{EventInit, parse_event_dictionary};
 pub(super) use kind::EventSubclassKind;
+pub(crate) use methods::process_before_unload_handler_return_value;
 pub(super) use methods::{
-    event_cancel_bubble_getter_function, event_cancel_bubble_setter_function,
-    event_composed_path_callback, event_prevent_default_callback,
-    event_return_value_getter_function, event_return_value_setter_function,
-    event_stop_immediate_propagation_callback, event_stop_propagation_callback,
-    event_time_stamp_getter_function, set_event_default_prevented,
+    before_unload_event_has_return_value, before_unload_event_return_value_getter_function,
+    before_unload_event_return_value_setter_function, event_cancel_bubble_getter_function,
+    event_cancel_bubble_setter_function, event_composed_path_callback,
+    event_prevent_default_callback, event_return_value_getter_function,
+    event_return_value_setter_function, event_stop_immediate_propagation_callback,
+    event_stop_propagation_callback, event_time_stamp_getter_function, set_event_default_prevented,
 };
 pub(super) use subclasses::{
     build_event_subclass_template, pointer_event_get_predicted_events_callback,

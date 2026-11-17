@@ -390,7 +390,13 @@ fn invoke_event_handler_property<'s>(
     }
     if let Some(returned) = returned {
         let returned = v8::Local::new(scope, returned);
-        if returned.is_boolean() && !returned.boolean_value(scope) {
+        // HTML processes an onbeforeunload handler's return value on a
+        // BeforeUnloadEvent as a request to stay, not as `return false`.
+        let processed_as_beforeunload = event_type == "beforeunload"
+            && crate::context_bootstrap::process_before_unload_handler_return_value(
+                scope, event, returned,
+            );
+        if !processed_as_beforeunload && returned.is_boolean() && !returned.boolean_value(scope) {
             let _ = crate::context_bootstrap::event_backing(scope, event).set(
                 scope,
                 v8str(scope, "defaultPrevented").into(),

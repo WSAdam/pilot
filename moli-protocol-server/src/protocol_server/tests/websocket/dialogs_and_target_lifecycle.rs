@@ -756,12 +756,21 @@ async fn websocket_cdp_page_navigate_runs_beforeunload_without_dialog_before_use
 
 /// Serves `/guard`, which cancels beforeunload the way Playwright's fixtures do
 /// and logs each run, with a link to `/second`; `/first` and `/second` are
-/// plain pages to leave it for.
+/// plain pages to leave it for. `/legacy` asks the legacy ways and logs each
+/// run: `?style=return` has an onbeforeunload handler return a string,
+/// `?style=returnValue` sets a non-empty returnValue, `?style=empty` sets it
+/// to the empty string, none of them calling preventDefault().
 fn spawn_page_started_beforeunload_fixture() -> (std::net::SocketAddr, DedicatedFixtureServer) {
     async fn guard() -> impl IntoResponse {
         (
             [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
             "<!doctype html><title>guard</title><a id=leave href=/second>leave</a><script>addEventListener('beforeunload', event => { console.log('moli beforeunload'); event.preventDefault(); event.returnValue = ''; })</script>",
+        )
+    }
+    async fn legacy() -> impl IntoResponse {
+        (
+            [(axum::http::header::CONTENT_TYPE.as_str(), "text/html")],
+            "<!doctype html><title>legacy</title><script>const style = new URLSearchParams(location.search).get('style'); if (style === 'return') { onbeforeunload = () => { console.log('moli beforeunload'); return 'You have unsaved changes'; }; } else { addEventListener('beforeunload', event => { console.log('moli beforeunload'); event.returnValue = style === 'empty' ? '' : 'You have unsaved changes'; }); }</script>",
         )
     }
     async fn first() -> impl IntoResponse {
@@ -779,6 +788,7 @@ fn spawn_page_started_beforeunload_fixture() -> (std::net::SocketAddr, Dedicated
     spawn_dedicated_fixture_server(
         Router::new()
             .route("/guard", get(guard))
+            .route("/legacy", get(legacy))
             .route("/first", get(first))
             .route("/second", get(second)),
         "page-started-beforeunload",
@@ -1197,6 +1207,214 @@ async fn websocket_cdp_link_click_beforeunload_dialog_dismissed_keeps_the_page()
         .await,
         format!("guard {guard_url}"),
         "dismissing the beforeunload dialog keeps the page the link would leave"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: beforeunload was a plain Event, so an onbeforeunload handler that
+// returns a string did not cancel it, and setting location.href after a user
+// gesture left the page without a beforeunload dialog.
+#[tokio::test]
+async fn websocket_cdp_beforeunload_handler_returning_a_string_opens_the_dialog() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let legacy_url = format!("http://{fixture_addr}/legacy?style=return");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &legacy_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.href = {}; 'after the setter'", json!(second_url)),
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert_eq!(
+        opening["params"]["message"],
+        json!(""),
+        "like Chrome, the dialog ignores the page's string: {observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(
+            &mut socket,
+            &session_id,
+            9,
+            "`${document.title} ${location.href}`"
+        )
+        .await,
+        format!("legacy {legacy_url}"),
+        "dismissing the beforeunload dialog keeps the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: beforeunload was a plain Event, so a listener that sets a
+// non-empty returnValue without preventDefault() did not cancel it, and setting
+// location.href after a user gesture left the page without a beforeunload
+// dialog.
+#[tokio::test]
+async fn websocket_cdp_beforeunload_listener_setting_return_value_opens_the_dialog() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let legacy_url = format!("http://{fixture_addr}/legacy?style=returnValue");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &legacy_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.href = {}; 'after the setter'", json!(second_url)),
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert_eq!(opening["params"]["message"], json!(""), "{observed:#?}");
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": true }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &session_id, "Page.loadEventFired"))
+    {
+        recv_until_match(&mut socket, |message| {
+            is_session_event(message, &session_id, "Page.loadEventFired")
+        })
+        .await;
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 9, "document.title").await,
+        "second",
+        "accepting the beforeunload dialog leaves the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-17: beforeunload was a plain Event, whose legacy boolean returnValue
+// treated `event.returnValue = ''` as a cancel. On a BeforeUnloadEvent an
+// empty returnValue alone does not ask to stay, so even after a user gesture
+// no dialog opens and location.href leaves the page.
+#[tokio::test]
+async fn websocket_cdp_beforeunload_listener_setting_empty_return_value_opens_no_dialog() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let legacy_url = format!("http://{fixture_addr}/legacy?style=empty");
+    let second_url = format!("http://{fixture_addr}/second");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &legacy_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": format!("location.href = {}; 'navigating'", json!(second_url)),
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut messages = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.loadEventFired")
+            || is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message["method"] == json!("Page.javascriptDialogOpening")),
+        "an empty returnValue alone must not open a beforeunload dialog: {messages:#?}"
+    );
+    if !messages.iter().any(|message| message["id"] == json!(7_u64)) {
+        messages
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)).await);
+    }
+    assert!(
+        messages
+            .iter()
+            .any(|message| is_beforeunload_console_message(message, &session_id)),
+        "location.href must still run beforeunload in the page it leaves: {messages:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &session_id, 8, "document.title").await,
+        "second",
+        "the navigation must go on"
     );
 
     let _ = socket.close(None).await;

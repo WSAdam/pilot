@@ -175,6 +175,103 @@ fn cross_document_unload_lifecycle_orders_pagehide_before_unload_without_timer()
     );
 }
 
+/// Dispatches `beforeunload` after `setup` runs, as the unload prompt does but
+/// without its dialog. Returns whether it asked to stay, and what the event
+/// looked like once dispatch finished.
+fn dispatch_beforeunload_case(vm: &mut ScriptVm, setup: &str) -> (bool, String) {
+    vm.eval(&format!(
+        "window.onbeforeunload = null; {setup}; \
+         addEventListener('beforeunload', event => {{ globalThis.__beforeunload = event; }}, {{ once: true }}); \
+         'ready'"
+    ))
+    .expect("beforeunload case setup should evaluate");
+    let asked_to_stay = vm
+        .with_default_context_scope_and_checkpoint_for_test(|scope, _| {
+            Ok(crate::context_bootstrap::dispatch_beforeunload_for_test(
+                scope,
+            ))
+        })
+        .expect("beforeunload should dispatch");
+    let event = vm
+        .eval(
+            "JSON.stringify([__beforeunload instanceof BeforeUnloadEvent, __beforeunload.isTrusted, \
+             __beforeunload.cancelable, __beforeunload.returnValue, __beforeunload.defaultPrevented])",
+        )
+        .expect("beforeunload observation should evaluate");
+    (asked_to_stay, event)
+}
+
+// 2026-11-17: beforeunload was a plain Event, so returnValue was Event's legacy
+// boolean and an onbeforeunload handler's string was ignored: neither legacy
+// way asked to stay, as Chrome's BeforeUnloadEvent does.
+#[test]
+fn beforeunload_is_a_before_unload_event_whose_return_value_asks_to_stay() {
+    let mut vm = new_storage_test_vm("https://example.com/base");
+
+    assert_eq!(
+        dispatch_beforeunload_case(&mut vm, ""),
+        (false, r#"[true,true,true,"",false]"#.to_owned()),
+        "a beforeunload nobody cancels is a trusted BeforeUnloadEvent with an empty returnValue"
+    );
+    assert_eq!(
+        vm.eval(
+            "JSON.stringify([Object.hasOwn(BeforeUnloadEvent.prototype, 'returnValue'), \
+             Object.hasOwn(__beforeunload, 'returnValue'), typeof __beforeunload.returnValue])"
+        )
+        .expect("returnValue placement should evaluate"),
+        r#"[true,false,"string"]"#,
+        "returnValue is BeforeUnloadEvent's DOMString attribute"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(
+            &mut vm,
+            "addEventListener('beforeunload', event => { event.returnValue = 'You have unsaved changes'; }, { once: true })"
+        ),
+        (
+            true,
+            r#"[true,true,true,"You have unsaved changes",false]"#.to_owned()
+        ),
+        "a non-empty returnValue asks to stay"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(
+            &mut vm,
+            "addEventListener('beforeunload', event => { event.returnValue = ''; }, { once: true })"
+        ),
+        (false, r#"[true,true,true,"",false]"#.to_owned()),
+        "an empty returnValue alone does not ask to stay"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(
+            &mut vm,
+            "window.onbeforeunload = () => 'You have unsaved changes'"
+        ),
+        (
+            true,
+            r#"[true,true,true,"You have unsaved changes",true]"#.to_owned()
+        ),
+        "an onbeforeunload handler that returns a string cancels the event and sets returnValue"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(&mut vm, "window.onbeforeunload = () => false"),
+        (true, r#"[true,true,true,"false",true]"#.to_owned()),
+        "a handler's non-null return value is converted to a string"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(&mut vm, "window.onbeforeunload = () => undefined"),
+        (false, r#"[true,true,true,"",false]"#.to_owned()),
+        "a handler that returns nothing does not ask to stay"
+    );
+    assert_eq!(
+        dispatch_beforeunload_case(
+            &mut vm,
+            "addEventListener('beforeunload', event => event.preventDefault(), { once: true })"
+        ),
+        (true, r#"[true,true,true,"",true]"#.to_owned()),
+        "preventDefault() still asks to stay"
+    );
+}
+
 #[test]
 fn navigate_event_intercept_option_stringification_preserves_thrown_exception() {
     let mut vm = new_storage_test_vm("https://example.com/base");

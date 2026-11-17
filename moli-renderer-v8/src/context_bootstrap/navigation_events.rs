@@ -638,8 +638,10 @@ pub(crate) fn dispatch_beforeunload_for_runtime_owner<'s>(
     let _ = dispatch_cancelable_beforeunload_for_runtime_owner(scope, owner);
 }
 
-/// Dispatches a cancelable trusted `beforeunload` at `owner` and reports
-/// whether a listener canceled it.
+/// Dispatches a cancelable trusted `beforeunload` BeforeUnloadEvent at
+/// `owner` and reports whether it asks to stay: like HTML and Chrome, a
+/// canceled event (`preventDefault()` or an `onbeforeunload` handler's return
+/// value) or a non-empty `returnValue`.
 fn dispatch_cancelable_beforeunload_for_runtime_owner<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     owner: v8::Local<'s, v8::Object>,
@@ -649,6 +651,15 @@ fn dispatch_cancelable_beforeunload_for_runtime_owner<'s>(
     };
     dispatch_unload_lifecycle_event_for_runtime_owner(scope, owner, "beforeunload", event);
     crate::context_bootstrap::event_bool_attribute(scope, event, "defaultPrevented")
+        || super::events::before_unload_event_has_return_value(scope, event)
+}
+
+/// Dispatches `beforeunload` at the current realm's Window as the unload
+/// prompt does, without its dialog, and reports whether it asks to stay.
+#[cfg(test)]
+pub(crate) fn dispatch_beforeunload_for_test(scope: &mut v8::PinScope<'_, '_>) -> bool {
+    let owner = scope.get_current_context().global(scope);
+    dispatch_cancelable_beforeunload_for_runtime_owner(scope, owner)
 }
 
 /// Chrome's "prompt to unload" for the top-level Document, run before a

@@ -196,6 +196,8 @@ pub(crate) use location_navigation::{
 pub(crate) use navigation_cancellation::{
     NavigationCancellationReason, inform_about_canceled_navigation_for_window,
 };
+#[cfg(test)]
+pub(crate) use navigation_events::dispatch_beforeunload_for_test;
 pub(crate) use navigation_events::{
     construct_original_hash_change_event, dispatch_beforeunload_for_runtime_owner,
     dispatch_pagehide_for_runtime_owner, dispatch_unload_for_runtime_owner,
@@ -320,8 +322,8 @@ pub(crate) use self::events::{
     event_is_error_event, event_is_mouse_event, event_private_value, initialize_event_object,
     initialize_event_wrapper, initialize_native_security_policy_violation_event,
     mark_agent_submit_event, mark_event_trusted, new_event_state, new_event_wrapper,
-    set_event_composed_path, set_event_internal_flag, set_event_private_value, set_event_trusted,
-    submit_event_submitter_value,
+    process_before_unload_handler_return_value, set_event_composed_path, set_event_internal_flag,
+    set_event_private_value, set_event_trusted, submit_event_submitter_value,
 };
 #[cfg(test)]
 pub(crate) use self::file_api::drag_data_read_count_for_test;

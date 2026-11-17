@@ -788,6 +788,18 @@ fn apply_child_window_event_handler_return(
         return;
     };
     let returned = v8::Local::new(scope, returned);
+    // An onbeforeunload handler's return value on a BeforeUnloadEvent asks to
+    // stay instead of following `return false`.
+    if event_type == "beforeunload" {
+        let before_unload_event = v8::Local::new(scope, event);
+        if crate::context_bootstrap::process_before_unload_handler_return_value(
+            scope,
+            before_unload_event,
+            returned,
+        ) {
+            return;
+        }
+    }
     let should_cancel = if event_type == "error" {
         returned.is_boolean() && returned.boolean_value(scope)
     } else {
