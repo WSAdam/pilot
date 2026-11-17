@@ -6,7 +6,7 @@ pilot is a fork of [lexmount/moli](https://github.com/lexmount/moli), made into 
 
 | Remote | URL | Use |
 |---|---|---|
-| `origin` | https://github.com/WSAdam/pilot | Our fork (renamed from `moli`). Only the `pilot gate` workflow runs here. Upstream's own workflows stay disabled, because they target its self-hosted runners. Each finished unit lands here once its gate run is green. GitHub paused Actions on this fork for its usage from 2026-11-10 to 2026-11-13, so gate runs are batched. |
+| `origin` | https://github.com/WSAdam/pilot | Our fork (renamed from `moli`). Only the `pilot gate` workflow runs here. Upstream's own workflows stay disabled, because they target its self-hosted runners. Each finished unit lands here once its gate run is green. GitHub paused Actions on this fork for its usage from 2026-11-10 to 2026-11-13, so gate runs are batched. On 2026-11-17 the repo left the fork network, so GitHub's fork-only usage policy no longer applies; `upstream` is still fetched as a plain remote. |
 | `upstream` | https://github.com/lexmount/moli | Fetch-only source of release tags. Its push URL is set to `DISABLED-pilot-never-pushes-to-moli`. |
 
 **Base:** upstream main `51d6d1ee3` (2026-11-02), which is 113 commits past `v1.1.20`.
