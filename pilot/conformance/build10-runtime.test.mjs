@@ -67,3 +67,33 @@ test('main world execution contexts have an empty name, as in Chrome', { timeout
     assert.ok(main.every((execution) => execution.isDefault === true), `main worlds ${JSON.stringify(main)}`);
     assert.ok(utility.length > 0 && utility.every((execution) => execution.name.startsWith('__playwright_utility_world_')), `isolated worlds ${JSON.stringify(utility)}`);
   }));
+
+/** A JavaScript comment the size of Playwright's injected script, full of the quotes, backslashes and newlines JSON escapes. */
+const INJECTED_SCRIPT_SIZED_PADDING = '/* "padding" \\ */\n'.repeat(19_000);
+
+// 2026-11-18 guard (TODO line 189, already true on the Build 9 binary): the
+// renderer used to parse a Runtime.evaluate into JSON about seven times to read
+// its userGesture, its contextId and its method. It now reads them once from
+// the command's head; a 346 KB evaluate must still run with its user gesture
+// and in the isolated world it names, as in Chrome.
+test('a 346 KB Runtime.evaluate keeps its user gesture and its isolated world', { timeout: 60_000 }, () =>
+  withPage(async (page, context) => {
+    await page.setContent('<p>large evaluate</p>');
+    await page.evaluate(() => { window.mainWorldOnly = 'main'; });
+    const session = await context.newCDPSession(page);
+    const { frameTree } = await session.send('Page.getFrameTree');
+    const { executionContextId } = await session.send('Page.createIsolatedWorld', { frameId: frameTree.frame.id, worldName: 'build10-large-evaluate' });
+    const gesture = await session.send('Runtime.evaluate', {
+      expression: `${INJECTED_SCRIPT_SIZED_PADDING}navigator.userActivation.isActive`,
+      userGesture: true,
+      returnByValue: true,
+    });
+    const isolated = await session.send('Runtime.evaluate', {
+      expression: `${INJECTED_SCRIPT_SIZED_PADDING}typeof window.mainWorldOnly + ' ' + document.querySelector('p').textContent`,
+      contextId: executionContextId,
+      returnByValue: true,
+    });
+    await session.detach();
+    assert.equal(gesture.result.value, true, `userGesture evaluate ${JSON.stringify(gesture)}`);
+    assert.equal(isolated.result.value, 'undefined large evaluate', `isolated evaluate ${JSON.stringify(isolated)}`);
+  }));
