@@ -190,23 +190,22 @@ pub(super) fn history_delta_traversal_plan<'s>(
     JointTraversalPlan::resolve(scope, owner, step)
 }
 
-/// Whether `delta`, from the step `history_delta_traversal_plan` resolves
-/// from, names a step of the owner's joint session history. A traversal out
-/// of that range goes nowhere.
-pub(super) fn history_delta_has_session_history_step<'s>(
+/// pilot: the step of the owner's joint session history that `delta` names,
+/// counted from the step `history_delta_traversal_plan` resolves from (a
+/// queued traversal's destination, as Chrome counts from its pending entry).
+/// `None` when it is out of that range, where a traversal goes nowhere.
+pub(super) fn history_delta_session_history_step<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     history: v8::Local<'s, v8::Object>,
     delta: i64,
-) -> bool {
+) -> Option<moli_session_history::SessionHistoryStepId> {
     let owner = runtime_window_owner(scope, history);
-    let Some(host_ptr) = crate::util::context_host_ptr_from_global_bridge(scope) else {
-        return false;
-    };
+    let host_ptr = crate::util::context_host_ptr_from_global_bridge(scope)?;
     let host = unsafe { &mut *host_ptr };
     let binding = super::session_history::binding(scope, host, owner);
     let model = host.session_histories.get_mut(binding.popup).clone();
     let source = host
         .pending_joint_history_step(&model)
         .unwrap_or_else(|| model.current_step());
-    model.step_by_delta_from(source, delta).is_some()
+    model.step_by_delta_from(source, delta)
 }

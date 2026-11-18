@@ -143,6 +143,15 @@ frame.contentWindow;
         ] {
             vm.eval(&format!("frame.contentWindow.history.{call}"))
                 .unwrap();
+            // pilot: the traversal leaves the top-level Document, so as in
+            // Chrome it is queued and handed to the browser by its own task.
+            assert_eq!(
+                vm.run_one_history_traversal_executor_turn(&loader)
+                    .await
+                    .unwrap(),
+                allowed,
+                "initial={initial}, changed={changed}, call={call}"
+            );
             let pending = vm
                 .take_pending_top_level_history_traversal()
                 .map(|pending| pending.delta);
@@ -155,11 +164,131 @@ frame.contentWindow;
         // A method borrowed from the child still uses its top-level History receiver.
         vm.eval("frame.contentWindow.history.back.call(history)")
             .unwrap();
+        assert!(
+            vm.run_one_history_traversal_executor_turn(&loader)
+                .await
+                .unwrap()
+        );
         assert_eq!(
             vm.take_pending_top_level_history_traversal().unwrap().delta,
             -1
         );
     }
+}
+
+/// Installs a top-level joint session history of `length` steps whose
+/// current Document, at `index`, is the only one the renderer knows: every
+/// other step is a browser-owned entry of another Document.
+fn install_browser_owned_session_history(
+    vm: &mut crate::runtime::PageVmTaskExecutorTestHarness,
+    url: &str,
+    index: usize,
+    length: usize,
+) {
+    use moli_session_history::{
+        JointSessionHistory, SessionHistoryContextId, SessionHistoryEntry, SessionHistoryPosition,
+    };
+
+    let mut seed = moli_page_types::initial_navigation_history_seed(false, url);
+    let mut traversable =
+        JointSessionHistory::new(SessionHistoryPosition::new(index, length).unwrap());
+    traversable.attach(
+        SessionHistoryContextId::ROOT,
+        None,
+        SessionHistoryEntry {
+            key: seed.entries[0].key.clone(),
+            document: seed.entries[0].document_id.clone(),
+        },
+    );
+    seed.session_history.traversable = Some(Box::new(traversable));
+    vm.install_navigation_bootstrap_entry(Some(seed));
+}
+
+// 2026-11-18: history.back() ran the top-level beforeunload inside the call
+// (Build 8 prompted synchronously), so a guarded page's dialog blocked the
+// calling script; Chrome queues the traversal and asks in a later task.
+#[tokio::test]
+async fn history_back_returns_before_its_queued_beforeunload_runs() {
+    let loader = ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).unwrap();
+    let url = "https://queued-top-level-traversal.test/current";
+    let mut vm = new_storage_page_task_executor_test_vm_with_loader(url, &loader);
+    install_browser_owned_session_history(&mut vm, url, 1, 3);
+    vm.eval(
+        "globalThis.unloadLog = []; \
+         addEventListener('beforeunload', () => unloadLog.push(`beforeunload:${globalThis.backReturned === true}`)); \
+         'armed'",
+    )
+    .unwrap();
+
+    vm.eval("history.back(); globalThis.backReturned = true; unloadLog.push('returned'); 'queued'")
+        .unwrap();
+    assert_eq!(
+        vm.eval("unloadLog.join('|')").unwrap(),
+        "returned",
+        "history.back() must return before the Document's beforeunload runs"
+    );
+    assert!(
+        vm.take_pending_top_level_history_traversal().is_none(),
+        "the traversal reaches the browser only after its queued beforeunload step"
+    );
+
+    assert!(
+        vm.run_one_history_traversal_executor_turn(&loader)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        vm.eval("unloadLog.join('|')").unwrap(),
+        "returned|beforeunload:true",
+        "the queued step runs beforeunload after the calling script finished"
+    );
+    assert_eq!(
+        vm.take_pending_top_level_history_traversal()
+            .map(|pending| pending.delta),
+        Some(-1)
+    );
+}
+
+// 2026-11-18: each history.back() ran its own synchronous beforeunload, so
+// several calls in one script asked the Document several times; Chrome asks
+// once, for the newest traversal, counted from the pending one.
+#[tokio::test]
+async fn several_history_back_calls_in_one_script_ask_once_and_traverse_from_the_pending_step() {
+    let loader = ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).unwrap();
+    let url = "https://coalesced-top-level-traversal.test/current";
+    let mut vm = new_storage_page_task_executor_test_vm_with_loader(url, &loader);
+    install_browser_owned_session_history(&mut vm, url, 2, 3);
+    vm.eval(
+        "globalThis.unloadCount = 0; \
+         addEventListener('beforeunload', () => { unloadCount += 1; }); \
+         'armed'",
+    )
+    .unwrap();
+
+    // The third call is out of range from the second's destination, step 0.
+    vm.eval("history.back(); history.back(); history.back(); 'queued'")
+        .unwrap();
+    assert_eq!(vm.eval("String(unloadCount)").unwrap(), "0");
+    assert!(vm.take_pending_top_level_history_traversal().is_none());
+
+    assert!(
+        vm.run_one_history_traversal_executor_turn(&loader)
+            .await
+            .unwrap()
+    );
+    assert_eq!(vm.eval("String(unloadCount)").unwrap(), "1");
+    assert_eq!(
+        vm.take_pending_top_level_history_traversal()
+            .map(|pending| pending.delta),
+        Some(-2)
+    );
+    assert!(
+        !vm.run_one_history_traversal_executor_turn(&loader)
+            .await
+            .unwrap(),
+        "the later calls queue no second traversal"
+    );
+    assert_eq!(vm.eval("String(unloadCount)").unwrap(), "1");
 }
 
 #[test]

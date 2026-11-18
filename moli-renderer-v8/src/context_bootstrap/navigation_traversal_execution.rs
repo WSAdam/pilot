@@ -5,8 +5,8 @@ use super::navigation_result::{
 };
 use super::navigation_seed::history_entry_seed_for_traversal;
 use super::navigation_window::{
-    child_browsing_context_handle_for_runtime_owner, runtime_window_is_global,
-    window_task_target_for_runtime_owner,
+    child_browsing_context_handle_for_runtime_owner, navigation_unload_event_active,
+    runtime_window_is_global, window_history_for_holder, window_task_target_for_runtime_owner,
 };
 use super::*;
 use crate::document_runtime::DomHandle;
@@ -143,19 +143,13 @@ pub(super) fn queue_history_traversal_without_result<'s>(
         seed.session_history.target_step = target.joint_step;
         super::session_history::capture_for_navigation(scope, target.owner, &mut seed);
         if runtime_window_is_global(scope, target.owner) {
-            let binding = super::session_history::binding(scope, host, target.owner);
-            let Some(delta) = target
-                .joint_step
-                .and_then(|step| host.session_histories.get_mut(binding.popup).delta_to(step))
-            else {
+            // pilot: the traversal leaves the top-level Document. Chrome
+            // queues it, so it prompts to unload in a later task, after the
+            // calling script has run to completion.
+            let Some(step) = target.joint_step else {
                 return;
             };
-            // The traversal leaves the top-level Document, which first
-            // prompts to unload it, as Chrome does.
-            if !super::navigation_events::prompt_to_unload_top_level_document(scope, target.owner) {
-                return;
-            }
-            host.record_pending_top_level_history_traversal(delta);
+            queue_top_level_cross_document_traversal(scope, target.owner, step);
             return;
         }
         if let Some(popup_id) =
@@ -210,6 +204,43 @@ pub(super) fn queue_history_traversal_without_result<'s>(
     }
 }
 
+/// pilot: queues a history traversal that leaves the top-level Document at
+/// `top_owner` for the joint session history step `target_step`.
+///
+/// Chrome's history.back(), forward() and go(n) only ask the browser to
+/// traverse: they return at once, the calling script runs to completion, and
+/// the browser has the renderer run beforeunload, and its dialog, in a later
+/// task. Location, hyperlink and form navigations keep their synchronous
+/// prompt, as in Chrome's renderer. A traversal requested while an earlier
+/// one is still queued retargets it, so the Document is asked once. One
+/// requested while this Document runs an unload event is dropped, as Chrome
+/// drops navigations during page dismissal.
+pub(super) fn queue_top_level_cross_document_traversal<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    top_owner: v8::Local<'s, v8::Object>,
+    target_step: moli_session_history::SessionHistoryStepId,
+) {
+    if navigation_unload_event_active(scope, top_owner) {
+        return;
+    }
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return;
+    };
+    let host = unsafe { &mut *host_ptr };
+    let Some(exact_target) = window_task_target_for_runtime_owner(scope, host, top_owner) else {
+        return;
+    };
+    let receiver_context = window_history_for_holder(scope, top_owner)
+        .and_then(|history| history.get_creation_context(scope))
+        .unwrap_or_else(|| scope.get_current_context());
+    let receiver_scope = &mut v8::ContextScope::new(scope, receiver_context);
+    if let Some(producer) =
+        host.queue_top_level_cross_document_traversal(receiver_scope, exact_target, target_step)
+    {
+        route_history_traversal_task(receiver_scope, host, producer);
+    }
+}
+
 fn traversal_target_entry<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     target: &TraversalTarget<'s>,
@@ -252,6 +283,15 @@ pub(crate) fn apply_authorized_history_traversal_task(
                     info: traversal.info,
                     results: traversal.results,
                 },
+            );
+        }
+        // pilot: see queue_top_level_cross_document_traversal.
+        PendingHistoryTraversalAction::TopLevelCrossDocument(traversal) => {
+            super::history_runtime::apply_pending_top_level_cross_document_traversal(
+                scope,
+                host,
+                traversal.target,
+                traversal.target_step,
             );
         }
     }

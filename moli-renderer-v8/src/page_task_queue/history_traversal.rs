@@ -41,6 +41,10 @@ impl RendererPageHistoryTraversalTaskId {
 pub(crate) enum RendererPageHistoryTraversalTaskKind {
     SameDocument,
     ChildCrossDocument,
+    /// pilot: a traversal that leaves the top-level Document. Chrome queues
+    /// it, so history.back(), forward() and go(n) return at once and the
+    /// Document's beforeunload, with its dialog, runs in this later task.
+    TopLevelCrossDocument,
 }
 
 /// Exact authority captured when a history traversal becomes pending.

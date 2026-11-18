@@ -122,6 +122,8 @@ pub(in crate::context_bootstrap) fn route_history_traversal_task(
         crate::native_bridge::PendingHistoryTraversalAction::ChildCrossDocument(traversal) => {
             traversal.results.as_slice()
         }
+        // pilot: a History API traversal has no Navigation API results.
+        crate::native_bridge::PendingHistoryTraversalAction::TopLevelCrossDocument(_) => return,
     };
     if results.is_empty() {
         return;
@@ -168,6 +170,38 @@ pub(in crate::context_bootstrap) fn apply_pending_history_traversal(
         .as_ref()
         .map(|value| v8::Local::new(scope, value));
     super::super::navigation_traversal_coordinator::execute(scope, plan, info, traversal.results);
+}
+
+/// pilot: the queued step of a traversal that leaves the top-level Document.
+/// Chrome asks the renderer for beforeunload only once the browser starts the
+/// traversal, so it runs here, in a task after the script that called
+/// history.back(), forward() or go(n): the prompt to unload, and the
+/// beforeunload dialog when the Document asks to stay. Staying drops the
+/// traversal and keeps the Document, Location and history; leaving hands the
+/// delta to `target_step` to the browser's history controller.
+pub(in crate::context_bootstrap) fn apply_pending_top_level_cross_document_traversal(
+    scope: &mut v8::PinScope<'_, '_>,
+    host: &mut JsContextHost,
+    target: crate::native_bridge::WindowTaskTarget,
+    target_step: moli_session_history::SessionHistoryStepId,
+) {
+    let Some(top_window) = history_traversal_target_window(scope, host, target) else {
+        return;
+    };
+    if !super::super::navigation_events::prompt_to_unload_top_level_document(scope, top_window) {
+        return;
+    }
+    // Measured after beforeunload, whose listeners can change the history.
+    let binding = super::super::session_history::binding(scope, host, top_window);
+    let Some(delta) = host
+        .session_histories
+        .get_mut(binding.popup)
+        .delta_to(target_step)
+        .filter(|delta| *delta != 0)
+    else {
+        return;
+    };
+    host.record_pending_top_level_history_traversal(delta);
 }
 
 pub(in crate::context_bootstrap) fn prepare_history_participant<'s>(

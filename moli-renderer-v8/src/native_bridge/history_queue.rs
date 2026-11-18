@@ -71,6 +71,15 @@ pub(crate) struct PendingChildCrossDocumentTraversal {
     pub(crate) results: Vec<PendingNavigationResult>,
 }
 
+/// pilot: a queued traversal that leaves the top-level Document. As in
+/// Chrome, history.back(), forward() and go(n) return at once; this task
+/// later runs the Document's beforeunload, and its dialog, before the browser
+/// traverses to `target_step`.
+pub(crate) struct PendingTopLevelCrossDocumentTraversal {
+    pub(crate) target: WindowTaskTarget,
+    pub(crate) target_step: moli_session_history::SessionHistoryStepId,
+}
+
 #[derive(WebApiObject)]
 #[webapi(plain, data_properties, enumerable)]
 struct NavigationResultDeclaration<'scope> {
@@ -81,6 +90,8 @@ struct NavigationResultDeclaration<'scope> {
 pub(crate) enum PendingHistoryTraversalAction {
     SameDocument(PendingHistoryTraversal),
     ChildCrossDocument(Box<PendingChildCrossDocumentTraversal>),
+    // pilot: see PendingTopLevelCrossDocumentTraversal.
+    TopLevelCrossDocument(PendingTopLevelCrossDocumentTraversal),
 }
 
 pub(crate) struct QueuedHistoryTraversalTask {
@@ -124,7 +135,8 @@ impl HistoryQueueState {
                     Some(pending.target_index)
                 }
                 PendingHistoryTraversalAction::SameDocument(_)
-                | PendingHistoryTraversalAction::ChildCrossDocument(_) => None,
+                | PendingHistoryTraversalAction::ChildCrossDocument(_)
+                | PendingHistoryTraversalAction::TopLevelCrossDocument(_) => None,
             })
     }
 
@@ -157,7 +169,8 @@ impl HistoryQueueState {
                             Some(pending)
                         }
                         PendingHistoryTraversalAction::SameDocument(_)
-                        | PendingHistoryTraversalAction::ChildCrossDocument(_) => None,
+                        | PendingHistoryTraversalAction::ChildCrossDocument(_)
+                        | PendingHistoryTraversalAction::TopLevelCrossDocument(_) => None,
                     })
         {
             if let Some(result) = result {
@@ -205,6 +218,47 @@ impl HistoryQueueState {
                 action: PendingHistoryTraversalAction::ChildCrossDocument(Box::new(traversal)),
             });
         task_id
+    }
+
+    /// pilot: queues the step of a traversal that leaves the top-level
+    /// Document. While one is still queued, a later request retargets it and
+    /// queues nothing, so the Document gets one beforeunload and at most one
+    /// dialog, as Chrome asks once for the newest pending navigation.
+    fn queue_top_level_cross_document_traversal(
+        &mut self,
+        execution_context: WindowExecutionContextIdentity,
+        relevant_context: WindowExecutionContextBinding,
+        traversal: PendingTopLevelCrossDocumentTraversal,
+    ) -> Option<RendererPageHistoryTraversalTaskId> {
+        if let Some(pending) = self
+            .pending_history_traversal_tasks
+            .iter_mut()
+            .find_map(|queued| match &mut queued.action {
+                PendingHistoryTraversalAction::TopLevelCrossDocument(pending)
+                    if pending.target == traversal.target =>
+                {
+                    Some(pending)
+                }
+                PendingHistoryTraversalAction::SameDocument(_)
+                | PendingHistoryTraversalAction::ChildCrossDocument(_)
+                | PendingHistoryTraversalAction::TopLevelCrossDocument(_) => None,
+            })
+        {
+            pending.target_step = traversal.target_step;
+            return None;
+        }
+        let task_id = self.next_history_traversal_task_id;
+        self.next_history_traversal_task_id = task_id
+            .checked_next()
+            .expect("history-traversal task id overflow");
+        self.pending_history_traversal_tasks
+            .push_back(QueuedHistoryTraversalTask {
+                task_id,
+                execution_context,
+                relevant_context,
+                action: PendingHistoryTraversalAction::TopLevelCrossDocument(traversal),
+            });
+        Some(task_id)
     }
 
     fn pending_history_traversal_task(
@@ -408,6 +462,12 @@ impl JsContextHost {
                     PendingHistoryTraversalAction::ChildCrossDocument(pending) => {
                         pending.seed.session_history.target_step
                     }
+                    // pilot: a later traversal counts from a queued top-level
+                    // one's destination, as Chrome counts from its pending
+                    // entry.
+                    PendingHistoryTraversalAction::TopLevelCrossDocument(pending) => {
+                        Some(pending.target_step)
+                    }
                 }?;
                 history.entries_at(step).map(|_| step)
             })
@@ -548,7 +608,8 @@ impl JsContextHost {
                         pending.results.first()
                     }
                     PendingHistoryTraversalAction::SameDocument(_)
-                    | PendingHistoryTraversalAction::ChildCrossDocument(_) => None,
+                    | PendingHistoryTraversalAction::ChildCrossDocument(_)
+                    | PendingHistoryTraversalAction::TopLevelCrossDocument(_) => None,
                 })
         {
             // Repeated requests share the original tracker, including its
@@ -677,6 +738,51 @@ impl JsContextHost {
         ))
     }
 
+    /// pilot: queues a traversal that leaves the top-level Document, so that,
+    /// as in Chrome, the calling script runs to completion before the
+    /// Document's beforeunload. Returns no producer when an already queued one
+    /// was retargeted to `target_step`.
+    pub(crate) fn queue_top_level_cross_document_traversal<'s>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, '_>,
+        target: WindowTaskTarget,
+        target_step: moli_session_history::SessionHistoryStepId,
+    ) -> Option<RendererPageHistoryTraversalProducer> {
+        let execution_context = self.current_runtime_window_execution_context_identity(scope)?;
+        let relevant_context = self.current_runtime_window_execution_context_binding(scope)?;
+        let sender = self.page_history_traversal_sender();
+        let task_id = self
+            .history_queue
+            .queue_top_level_cross_document_traversal(
+                execution_context,
+                relevant_context,
+                PendingTopLevelCrossDocumentTraversal {
+                    target,
+                    target_step,
+                },
+            )?;
+        Some(sender.bind_task(
+            execution_context,
+            target,
+            task_id,
+            RendererPageHistoryTraversalTaskKind::TopLevelCrossDocument,
+        ))
+    }
+
+    /// pilot: whether a traversal that leaves the top-level Document is still
+    /// waiting for its task.
+    pub(crate) fn has_pending_top_level_cross_document_traversal(&self) -> bool {
+        self.history_queue
+            .pending_history_traversal_tasks
+            .iter()
+            .any(|queued| {
+                matches!(
+                    queued.action,
+                    PendingHistoryTraversalAction::TopLevelCrossDocument(_)
+                )
+            })
+    }
+
     pub(crate) fn current_pending_history_traversal_task_owner(
         &self,
         task_id: RendererPageHistoryTraversalTaskId,
@@ -697,6 +803,11 @@ impl JsContextHost {
             PendingHistoryTraversalAction::ChildCrossDocument(pending) => (
                 pending.target,
                 RendererPageHistoryTraversalTaskKind::ChildCrossDocument,
+            ),
+            // pilot: see PendingTopLevelCrossDocumentTraversal.
+            PendingHistoryTraversalAction::TopLevelCrossDocument(pending) => (
+                pending.target,
+                RendererPageHistoryTraversalTaskKind::TopLevelCrossDocument,
             ),
         };
         if self.current_window_execution_context_owner(target.dispatch_scope())
@@ -723,6 +834,11 @@ impl JsContextHost {
             PendingHistoryTraversalAction::ChildCrossDocument(pending) => (
                 pending.target,
                 RendererPageHistoryTraversalTaskKind::ChildCrossDocument,
+            ),
+            // pilot: see PendingTopLevelCrossDocumentTraversal.
+            PendingHistoryTraversalAction::TopLevelCrossDocument(pending) => (
+                pending.target,
+                RendererPageHistoryTraversalTaskKind::TopLevelCrossDocument,
             ),
         };
         if queued.execution_context != execution_context

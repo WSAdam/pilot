@@ -29,9 +29,11 @@ use super::navigation_result::{
     navigation_rejected_dom_exception_result, navigation_rejected_invalid_state_result,
     navigation_rejected_value_result, navigation_result_with_pending_commit,
 };
-use super::navigation_traversal_execution::queue_navigation_traversal_with_result;
+use super::navigation_traversal_execution::{
+    queue_navigation_traversal_with_result, queue_top_level_cross_document_traversal,
+};
 use super::navigation_traversal_plan::{
-    NavigationTraversalPlan, history_delta_has_session_history_step, history_delta_traversal_plan,
+    NavigationTraversalPlan, history_delta_session_history_step, history_delta_traversal_plan,
     navigation_delta_traversal_plan, navigation_index_traversal_plan,
 };
 use super::navigation_window::{
@@ -553,12 +555,19 @@ fn queue_browser_owned_top_level_history_traversal<'s>(
     // Document's own same-document entries: unless it is out of range, the
     // browser's traversal leaves the top-level Document, which first prompts
     // to unload it, as Chrome does.
-    if history_delta_has_session_history_step(scope, history, delta)
-        && !super::navigation_events::prompt_to_unload_top_level_document(scope, top_owner)
-    {
+    // pilot: Chrome queues that traversal and prompts in a later task, after
+    // the calling script has returned.
+    let Some(step) = history_delta_session_history_step(scope, history, delta) else {
+        // pilot: out of range from a still queued traversal's destination,
+        // which Chrome counts from, the request is dropped; otherwise the
+        // browser's history controller decides.
+        let host = unsafe { &mut *host_ptr };
+        if !host.has_pending_top_level_cross_document_traversal() {
+            host.record_pending_top_level_history_traversal(delta);
+        }
         return;
-    }
-    unsafe { &mut *host_ptr }.record_pending_top_level_history_traversal(delta);
+    };
+    queue_top_level_cross_document_traversal(scope, top_owner, step);
 }
 
 pub(crate) fn queue_top_level_history_traversal_by_delta(

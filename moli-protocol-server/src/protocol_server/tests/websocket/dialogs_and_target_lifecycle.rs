@@ -966,6 +966,95 @@ async fn websocket_cdp_history_back_beforeunload_dialog_accepted_leaves_the_page
     protocol_server.abort();
 }
 
+// 2026-11-18: history.back() ran beforeunload inside the call (Build 8's
+// synchronous prompt), so its dialog opened while the calling script still
+// ran; Chrome queues the traversal and asks in a later task, after the script
+// has returned.
+#[tokio::test]
+async fn websocket_cdp_history_back_returns_before_the_beforeunload_dialog_opens() {
+    let (fixture_addr, _fixture_server) = spawn_page_started_beforeunload_fixture();
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let first_url = format!("http://{fixture_addr}/first");
+    let guard_url = format!("http://{fixture_addr}/guard");
+    let session_id = cdp_create_default_session_and_navigate(&mut socket, &first_url).await;
+    cdp_navigate_and_wait_for_load(&mut socket, 6, &session_id, &guard_url).await;
+
+    send_cdp_command_without_wait(
+        &mut socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({
+            "expression": "addEventListener('beforeunload', () => { window.scriptHadReturned = window.backReturned === true; }); history.back(); window.backReturned = true; 'returned'",
+            "returnByValue": true,
+            "userGesture": true
+        }),
+    )
+    .await;
+    let mut observed = recv_until_match(&mut socket, |message| {
+        is_session_event(message, &session_id, "Page.javascriptDialogOpening")
+    })
+    .await;
+    let opening = observed.last().expect("Page.javascriptDialogOpening");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    if !observed.iter().any(|message| message["id"] == json!(7_u64)) {
+        // The dialog is still open, so only a script that already returned
+        // can answer now.
+        let response = tokio::time::timeout(
+            Duration::from_secs(10),
+            recv_until_match(&mut socket, |message| message["id"] == json!(7_u64)),
+        )
+        .await
+        .expect(
+            "like Chrome, history.back() returns and its script finishes while the beforeunload dialog is open",
+        );
+        observed.extend(response);
+    }
+    let evaluate = observed
+        .iter()
+        .find(|message| message["id"] == json!(7_u64))
+        .expect("Runtime.evaluate response");
+    assert_eq!(
+        evaluate["result"]["result"]["value"],
+        json!("returned"),
+        "{observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            8,
+            "Page.handleJavaScriptDialog",
+            Some(&session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(
+            &mut socket,
+            &session_id,
+            9,
+            "`${document.title} ${location.href} ${window.scriptHadReturned}`"
+        )
+        .await,
+        format!("guard {guard_url} true"),
+        "beforeunload runs after the script returned, and dismissing its dialog keeps the page: {observed:#?}"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 // 2026-11-17: a navigation the page starts itself never ran beforeunload.
 // Without sticky activation a canceled beforeunload opens no dialog and the
 // location.href navigation goes on.
