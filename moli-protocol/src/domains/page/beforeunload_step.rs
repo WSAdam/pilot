@@ -47,15 +47,28 @@ impl BeforeUnloadStepLeader {
     /// Hands the page's answer to the navigations that waited on this step
     /// and returns whether the leading navigation itself may go on.
     ///
-    /// When the user chose to stay, every one of them is aborted, as in
-    /// Chrome. Otherwise the leading navigation goes on and the ones that
-    /// arrived while it asked are aborted.
+    /// As in Chrome, when the user chose to stay every one of them is
+    /// aborted, and when the page may be left the latest navigation wins:
+    /// the newest waiter still listening goes on and the others, the leading
+    /// one included, are aborted. The leading navigation goes on only when
+    /// no waiter is left to take its place.
     pub(crate) fn settle(self, proceed: bool) -> bool {
-        let waiters = std::mem::take(&mut *self.0.lock());
-        for waiter in waiters {
-            let _ = waiter.send(false);
+        let mut waiters = std::mem::take(&mut *self.0.lock());
+        if !proceed {
+            for waiter in waiters {
+                let _ = waiter.send(false);
+            }
+            return false;
         }
-        proceed
+        while let Some(newest) = waiters.pop() {
+            if newest.send(true).is_ok() {
+                for earlier in waiters {
+                    let _ = earlier.send(false);
+                }
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -89,6 +102,41 @@ mod tests {
         assert!(
             waiting.try_recv().is_err(),
             "a dropped leader leaves its waiters unanswered, so they ask again"
+        );
+    }
+
+    // 2026-11-18: an accepted beforeunload let the navigation that asked go on (before the join, the later one's queued beforeunload opened a dialog nobody answered and both hung); Chrome lets the latest navigation win and aborts the rest.
+    #[test]
+    fn the_newest_navigation_waiting_on_an_accepted_beforeunload_wins() {
+        let mut step = TargetBeforeUnloadStep::default();
+        let leader = step.begin();
+        let mut earlier = step.join().expect("a step is in progress");
+        let mut newest = step.join().expect("a step is in progress");
+
+        assert!(!leader.settle(true), "the leading navigation is aborted");
+        assert_eq!(
+            earlier.try_recv(),
+            Ok(false),
+            "an earlier waiter is aborted"
+        );
+        assert_eq!(newest.try_recv(), Ok(true), "the newest waiter goes on");
+    }
+
+    // 2026-11-18: guard for the latest-wins fix: a waiter whose command was dropped cannot win, so the newest one still listening does, and the leading navigation only when none is left.
+    #[test]
+    fn an_accepted_beforeunload_goes_to_the_newest_navigation_still_waiting() {
+        let mut step = TargetBeforeUnloadStep::default();
+        let leader = step.begin();
+        let mut earlier = step.join().expect("a step is in progress");
+        drop(step.join().expect("a step is in progress"));
+        assert!(!leader.settle(true));
+        assert_eq!(earlier.try_recv(), Ok(true));
+
+        let leader = step.begin();
+        drop(step.join().expect("a step is in progress"));
+        assert!(
+            leader.settle(true),
+            "with no navigation left waiting the leading one goes on"
         );
     }
 }

@@ -1136,6 +1136,69 @@ async fn websocket_cdp_second_session_navigation_behind_a_dismissed_beforeunload
     protocol_server.abort();
 }
 
+// 2026-11-18: accepting the dialog let the first session's navigation go on and aborted the second session's (before that, the second's queued beforeunload opened a dialog nobody answered and both hung); Chrome aborts the first and lets the later navigation commit.
+#[tokio::test]
+async fn websocket_cdp_second_session_navigation_behind_an_accepted_beforeunload_dialog_wins() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let page = two_session_guard_page(&mut socket).await;
+    let mut observed = open_beforeunload_dialog_from_first_session(&mut socket, &page).await;
+    navigate_second_session_behind_open_dialog(&mut socket, &page, &mut observed).await;
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            9,
+            "Page.handleJavaScriptDialog",
+            Some(&page.session_id),
+            json!({ "accept": true }),
+        )
+        .await,
+    );
+    recv_both_navigate_responses(&mut socket, &mut observed).await;
+    let first = observed
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("first Page.navigate response");
+    assert_eq!(
+        first["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "the later navigation supersedes the first: {observed:#?}"
+    );
+    let second = observed
+        .iter()
+        .find(|message| message["id"] == json!(30_u64))
+        .expect("second Page.navigate response");
+    assert!(
+        second["result"]["loaderId"].is_string() && second["result"]["errorText"].is_null(),
+        "the second navigation goes on: {observed:#?}"
+    );
+
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &page.second_session_id, "Page.loadEventFired"))
+    {
+        observed.extend(
+            recv_until_match(&mut socket, |message| {
+                is_session_event(message, &page.second_session_id, "Page.loadEventFired")
+            })
+            .await,
+        );
+    }
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &page.session_id, 10, "document.title").await,
+        "third",
+        "the page commits the second session's navigation: {observed:#?}"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 /// Serves `/guard`, which cancels beforeunload the way Playwright's fixtures do
 /// and logs each run, with a link to `/second`; `/first` and `/second` are
 /// plain pages to leave it for. `/legacy` asks the legacy ways and logs each

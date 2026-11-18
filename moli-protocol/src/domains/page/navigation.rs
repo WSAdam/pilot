@@ -1065,6 +1065,8 @@ pub(super) fn complete_pending_beforeunload_command(
                 }
             };
             // pilot: answer the navigations that waited on this beforeunload.
+            // When the page may be left the latest of them wins, as in
+            // Chrome, and this one is aborted like a stay answer.
             leader.settle(proceed)
         }
         CompletedBeforeUnloadAnswer::Waiting(Ok(proceed)) => proceed,
