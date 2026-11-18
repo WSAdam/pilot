@@ -20,6 +20,7 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 | 4–7 | run | gate run 43442789601, 27 commits on `gate/build4-7`; main fast-forwarded to 94ae913a3 | Builds 3–7 together, one run instead of four, after GitHub paused Actions on the fork for its usage (2026-11-10 to 2026-11-13) | Linux: clippy 8.6 GB, nextest 10.9 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0 | 2 h 21 min. Linux: clippy 14 min, nextest 49 + 3 min (22,095 + 216 tests), release 20 min, smoke 2 min. Mac: release 43 min, conformance 43 pass and 3 Build 3b todo, pilot-mcp 45/45. MCP tools re-measure on the Mac binary: 39/39 | release binaries only (downloaded) | this commit |
 | 3b | heavy | done 2026-11-17, gate run 44124162484 (the second on `gate/build3b`); main fast-forwarded to e6217329d. The first run, 44111028067, failed two upstream Playwright-over-CDP tests whose helper expected a child frame's new context before its commit; Chrome sends the commit first, so the helper now waits for the context after it | a viewport resize reaches ResizeObservers; a child frame's commit is sent before its own child frames attach (nested iframes list all 3 frames); beforeunload and its dialog on Playwright-started navigations | Linux: clippy 8.6 GB, nextest 11.4 GB, release 6.9 GB. Mac release 3.4 GB. Your Mac: 0 | 1 h 53 min. Linux: clippy 11 min, nextest 38 + 3 min (22,103 + 216 tests; 2 upstream fetch-deadline tests flaky, passed on retry), release 16 min, smoke 2 min. Mac: release 38 min, conformance 46 pass and 0 todo, pilot-mcp 45/45 | release binaries only (downloaded) | 91887b4c7 … e6217329d |
 | 8 | heavy | done 2026-11-18, gate run 44296600166 (the third on `gate/build8`); main fast-forwarded to 602b9f6d1. Run 1 (44155204410) failed the emulation layout-metrics test, which now expects Chrome's page scale of 1, and a worker test that overflowed its stack. Run 2 (44196996026) failed the same worker test. Five diagnosis runs on throwaway `gate/diag-b8-*` branches found the cause: in a debug build, tokio's spawn_local passed a large page-task future by value through about 12 frames. Runs 44164466610 (bisect), 44180352795 (gdb), 44209002268 (core dumps), 44216554117 (gdb on the workspace build), and 44220737570 (the new test overflows without the fix and passes with it). The future is now boxed before it is spawned | file:// subresources, listbox option offset metrics, 980px layout without a viewport meta tag on phones, beforeunload for page-started navigations, inserted-script page errors; also legacy BeforeUnloadEvent return values, Chrome's page scale in getLayoutMetrics (whole-viewport screenshots at DPR 2 or 3), and the boxed owner-task future | Linux: clippy 8.6 GB, nextest 10.2 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0 | 1 h 50 min. Linux: clippy 10 min, nextest 30 + 2.5 min (22,135 + 216 tests, no flakes), release 14 min, smoke 1 min. Mac: release 48 min, conformance 55 pass and 0 todo, pilot-mcp 45/45 | release binaries only (downloaded) | 7c7742d17 … 602b9f6d1 |
+| 9 | heavy | prep 2026-11-18: 5 conformance tests red on the Build 8 binary (`build9.test.mjs`), plus the code cache measured | history.back() returns before its beforeunload dialog, createEvent("BeforeUnloadEvent"), screencast pageScaleFactor on phones, dialog events to every CDP session, a second session's navigation aborted behind a dismissed dialog, the injected-script code cache | | | | |
 | opt | heavy | only on request | network-fingerprint leftovers | | | | |
 
 **How a build moves through it:**
@@ -161,6 +162,27 @@ Left open: the beforeunload timeout for a hung page (line 176) and the cross-ses
 - document.createEvent("BeforeUnloadEvent") (line 182).
 
 **After Build 8:** the two deferred speed items from Build 5 (the Live re-layout after focus or hover, and the injected-script code cache).
+
+### Build 9: heavy, Build 8's open lines and the code cache (prep 2026-11-18)
+**Measured first, on the Build 8 binary** (`bench/results/2026-11-18-build8-after.json`, 2 contexts because the Mac had about 180 MB free):
+- Bench click median: 45.1 ms. That's under Build 5's 47 ms target and at the 45 ms Moli baseline, so Build 5's frame grid already met the goal of the hover/focus re-layout skip (TODO line 86). Line 86 stays open and isn't built: the most it could save is about 8 ms, and it needs the style engine to report layout damage.
+- First snapshot on a new document: 54.5 ms, against 15.8 ms for a repeat snapshot, a 38.7 ms gap.
+  - About 22 ms of the gap is the document's first layout.
+  - The injected script and its first run take 17 ms; a code cache can remove about 10 ms of that.
+
+**Checked against Chromium headless shell 1223** (PILOT_BIN pointed at it):
+- Line 176 needs no change. Under Playwright's `--disable-hang-monitor`, Chrome waits out a busy beforeunload handler too, and pilot matches it.
+- Line 177's premise was wrong. Chrome also queues a second session's navigation behind an open beforeunload dialog, then aborts it when the dialog is dismissed; the corrected line is at the end of TODO.md.
+
+Each item has a conformance test in `pilot/conformance/build9.test.mjs`, green on Chrome and red on the Build 8 binary (the desktop screencast test is a guard):
+| Item | Where | TODO |
+|---|---|---|
+| history.back() returns before the beforeunload dialog opens (the traversal is queued, as in Chrome) | renderer navigation traversal | line 179 |
+| document.createEvent("BeforeUnloadEvent") returns a BeforeUnloadEvent | renderer events | line 182 |
+| Page.screencastFrame metadata carries the page scale on a phone | moli-protocol screencast output | line 181 |
+| Page.javascriptDialogOpening reaches every session with Page enabled | moli-protocol dialogs | line 43 |
+| A second session's navigation queued behind a dismissed beforeunload dialog is aborted (ERR_ABORTED), and the page stays | moli-protocol page navigation | the corrected line at the end of TODO.md |
+| Playwright's injected script compiled once per process (a V8 code cache), so the first snapshot on a new document drops about 10 ms | renderer and Runtime.evaluate | line 103 |
 
 ### Optional, heavy: network-fingerprint leftovers (low payoff)
 - The items:
