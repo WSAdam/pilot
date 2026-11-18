@@ -17,6 +17,9 @@ pub use moli_parser as parser;
 pub use moli_selector as selector;
 pub use moli_v8_platform::ProcessEnvironmentOwner;
 
+pub use animation_frame_rate::{
+    DEFAULT_ANIMATION_FRAME_RATE_HZ, is_usable_animation_frame_rate, set_animation_frame_rate,
+};
 pub use app_manifest::{
     RendererAppManifest, RendererAppManifestDisplayMode, RendererAppManifestError,
     RendererAppManifestImageResource, RendererAppManifestLoadOutcome,
@@ -27,6 +30,7 @@ pub use app_manifest::{
 };
 
 mod abort_signal_route;
+mod animation_frame_rate;
 mod app_manifest;
 mod blob;
 mod broadcast_channel_runtime;

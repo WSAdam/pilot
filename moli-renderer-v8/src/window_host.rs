@@ -67,12 +67,6 @@ const IDLE_DEADLINE_DID_TIMEOUT_SLOT: &str = "__moliIdleDeadlineDidTimeout";
 const IDLE_DEADLINE_MS_SLOT: &str = "__moliIdleDeadlineMs";
 const IDLE_DEADLINE_TIME_ORIGIN_SLOT: &str = "__moliIdleDeadlineTimeOrigin";
 const IDLE_OPPORTUNITY_DELAY_MS: u32 = 1;
-/// Animation frames follow a fixed 60 Hz grid from the document's time origin,
-/// as Chrome's follow vsync: a callback requested mid-frame runs at the next
-/// frame boundary, not a whole frame after the request. On an idle page (no
-/// frame has run in the current interval) it runs at once in the current frame,
-/// stamped with that frame's start, as Chrome serves a missed begin-frame.
-const WINDOW_ANIMATION_FRAME_INTERVAL_MS: f64 = 1000.0 / 60.0;
 pub(crate) const TOP_WINDOW_MESSAGE_ENDPOINT_SLOT: &str = "__moliTopWindowMessageEndpoint";
 
 #[derive(WebApiObject)]
@@ -781,9 +775,10 @@ pub(super) fn window_request_animation_frame_callback<'s>(
 
     let global = scope.get_current_context().global(scope);
     let now = current_animation_frame_time_ms(scope);
+    let interval = crate::animation_frame_rate::animation_frame_interval_ms();
     // A batch still to run joins this request, including one served at once in
     // the current frame (its timestamp, the frame's start, is not after `now`).
-    let current_frame_start = current_animation_frame_start_ms(now);
+    let current_frame_start = current_animation_frame_start_ms(now, interval);
     let target_timestamp =
         get_private_value(scope, global, WINDOW_PENDING_ANIMATION_FRAME_TIMESTAMP_SLOT)
             .and_then(|value| value.number_value(scope))
@@ -792,7 +787,7 @@ pub(super) fn window_request_animation_frame_callback<'s>(
                 let last_frame =
                     get_private_value(scope, global, WINDOW_LAST_ANIMATION_FRAME_TIMESTAMP_SLOT)
                         .and_then(|value| value.number_value(scope));
-                let timestamp = requested_animation_frame_time_ms(now, last_frame);
+                let timestamp = requested_animation_frame_time_ms(now, last_frame, interval);
                 set_private_value(
                     scope,
                     global,
@@ -2083,20 +2078,28 @@ pub(crate) fn current_time_ms() -> f64 {
         * 1000.0
 }
 
-/// The start of the 60 Hz frame `now` falls in.
-fn current_animation_frame_start_ms(now: f64) -> f64 {
-    (now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor() * WINDOW_ANIMATION_FRAME_INTERVAL_MS
+// Animation frames follow a grid from the document's time origin, one frame
+// every `interval` ms (the display's refresh interval, animation_frame_rate.rs),
+// as Chrome's follow vsync: a callback requested mid-frame runs at the next
+// frame boundary, not a whole frame after the request. On an idle page (no
+// frame has run in the current interval) it runs at once in the current frame,
+// stamped with that frame's start, as Chrome serves a missed begin-frame.
+
+/// The start of the frame `now` falls in, on a grid of `interval` ms frames.
+fn current_animation_frame_start_ms(now: f64, interval: f64) -> f64 {
+    (now / interval).floor() * interval
 }
 
-/// The frame a callback requested at `now` runs in. When no frame has run in
-/// the current interval the page is idle, and Chrome serves the request at once
-/// with a missed begin-frame stamped with the latest vsync: here, the current
-/// frame's start. Otherwise it waits for the first boundary after `now`.
-fn requested_animation_frame_time_ms(now: f64, last_frame: Option<f64>) -> f64 {
-    let frame_index = (now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor();
-    let current_frame_start = frame_index * WINDOW_ANIMATION_FRAME_INTERVAL_MS;
+/// The frame a callback requested at `now` runs in, on a grid of `interval` ms
+/// frames. When no frame has run in the current interval the page is idle, and
+/// Chrome serves the request at once with a missed begin-frame stamped with the
+/// latest vsync: here, the current frame's start. Otherwise it waits for the
+/// first boundary after `now`.
+fn requested_animation_frame_time_ms(now: f64, last_frame: Option<f64>, interval: f64) -> f64 {
+    let frame_index = (now / interval).floor();
+    let current_frame_start = frame_index * interval;
     if last_frame.is_some_and(|last| last >= current_frame_start) {
-        (frame_index + 1.0) * WINDOW_ANIMATION_FRAME_INTERVAL_MS
+        (frame_index + 1.0) * interval
     } else {
         current_frame_start
     }
@@ -2309,6 +2312,64 @@ mod tests {
     use crate::structured_clone::{
         RuntimeMessageAgentCluster, StructuredCloneMetadata, V8StructuredClonePayload,
     };
+
+    // 2026-11-18 (pilot): frames followed a fixed 60 Hz grid, where Chrome's
+    // follow the display: 8.33 ms apart on a 120 Hz ProMotion Mac (Chromium
+    // 1223). The grid now takes the display's interval.
+    #[test]
+    fn animation_frames_follow_a_grid_of_the_display_interval() {
+        let interval = 1000.0 / 120.0;
+        assert_eq!(
+            current_animation_frame_start_ms(20.0, interval),
+            2.0 * interval
+        );
+        assert_eq!(
+            current_animation_frame_start_ms(20.0, 1000.0 / 60.0),
+            1000.0 / 60.0
+        );
+        // A frame already ran in the current interval: the next boundary.
+        assert_eq!(
+            requested_animation_frame_time_ms(20.0, Some(2.0 * interval), interval),
+            3.0 * interval
+        );
+    }
+
+    // 2026-11-18 (pilot): Build 9's idle rule (no frame ran in the current
+    // interval, so the request is served at once, stamped with the current
+    // frame's start) holds at the display's interval, not only at 60 Hz.
+    #[test]
+    fn an_idle_page_is_served_in_the_current_frame_of_the_display_interval() {
+        for interval in [1000.0 / 60.0, 1000.0 / 120.0, 199_999.0 / 24_000.0] {
+            let now = 10.4 * interval;
+            let current_frame_start = 10.0 * interval;
+            assert_eq!(
+                requested_animation_frame_time_ms(now, None, interval),
+                current_frame_start,
+                "{interval}"
+            );
+            assert_eq!(
+                requested_animation_frame_time_ms(now, Some(9.0 * interval), interval),
+                current_frame_start,
+                "{interval}"
+            );
+            assert_eq!(
+                requested_animation_frame_time_ms(now, Some(current_frame_start), interval),
+                11.0 * interval,
+                "{interval}"
+            );
+        }
+        // A request 9.3 ms after a frame that ran at 16.67 ms: idle at 120 Hz
+        // (a frame boundary passed at 25 ms), mid-frame at 60 Hz.
+        let last_frame = Some(2.0 * (1000.0 / 120.0));
+        assert_eq!(
+            requested_animation_frame_time_ms(26.0, last_frame, 1000.0 / 120.0),
+            3.0 * (1000.0 / 120.0)
+        );
+        assert_eq!(
+            requested_animation_frame_time_ms(26.0, last_frame, 1000.0 / 60.0),
+            2.0 * (1000.0 / 60.0)
+        );
+    }
 
     #[test]
     fn iframe_width_attribute_uses_html_dimension_rules() {
