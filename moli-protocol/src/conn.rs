@@ -641,7 +641,7 @@ pub(crate) use runtime_eval::{
     PreparedRuntimeDomQuery, PreparedRuntimeHelper, PreparedRuntimePageQuery,
     PreparedRuntimeRealmInventory, RuntimeBindingCallEvent, RuntimeEnableEventsReplay,
     RuntimeEnableReplayEvent, RuntimeHelperIdentity, RuntimeInspectorError, SessionWorkerCleanup,
-    runtime_remote_object_ids_in_map,
+    runtime_remote_object_ids_in_map, runtime_remote_object_ids_in_value,
 };
 pub use runtime_eval::{
     CompletedMoliDiagnosticsDispatch, CompletedRuntimeBindingPageCommandDispatch,

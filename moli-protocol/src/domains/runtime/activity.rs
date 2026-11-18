@@ -106,7 +106,12 @@ impl RuntimeInspectorMessageAuthority {
 #[derive(Clone, Debug, PartialEq)]
 enum RuntimeInspectorMessage {
     Context(RuntimeContextProtocolEvent),
-    Background(BackgroundProtocolEvent),
+    Background {
+        event: BackgroundProtocolEvent,
+        /// pilot: the remote object ids an event (not a response) hands its
+        /// session, registered for that session when the event is projected.
+        remote_object_ids: Vec<String>,
+    },
 }
 
 impl RuntimeInspectorMessage {
@@ -118,9 +123,22 @@ impl RuntimeInspectorMessage {
             RendererRuntimeInspectorMessage::RuntimeContext(event) => {
                 Self::Context(RuntimeContextProtocolEvent::from_restore_event(event))
             }
-            RendererRuntimeInspectorMessage::Protocol(message) => Self::Background(
-                protocol_message_background_event_for_target(message.into_value(), target_id),
-            ),
+            RendererRuntimeInspectorMessage::Protocol(message) => {
+                let message = message.into_value();
+                // pilot: V8 wraps an event's objects (an exception, console
+                // arguments, paused call frames) in the receiving session's
+                // own object table, as the command-output route already
+                // registers them. Responses are registered by their command.
+                let remote_object_ids = if message.get("id").is_none() {
+                    crate::conn::runtime_remote_object_ids_in_value(&message)
+                } else {
+                    Vec::new()
+                };
+                Self::Background {
+                    event: protocol_message_background_event_for_target(message, target_id),
+                    remote_object_ids,
+                }
+            }
         }
     }
 
@@ -129,7 +147,7 @@ impl RuntimeInspectorMessage {
             Self::Context(RuntimeContextProtocolEvent::Created(event)) => event.context_id,
             Self::Context(RuntimeContextProtocolEvent::Destroyed(_))
             | Self::Context(RuntimeContextProtocolEvent::Cleared(_))
-            | Self::Background(_) => None,
+            | Self::Background { .. } => None,
         }
     }
 }
@@ -534,7 +552,17 @@ fn push_runtime_inspector_messages_for_session(
                 apply_runtime_context_protocol_event_side_effects_typed(conn, &event, session_id);
                 emit_runtime_context_protocol_background_event_typed(out, event, session_id);
             }
-            RuntimeInspectorMessage::Background(mut event) => {
+            RuntimeInspectorMessage::Background {
+                mut event,
+                remote_object_ids,
+            } => {
+                // pilot: without this, another session on the target that
+                // holds the same wire id makes the object unusable here
+                // (validate_runtime_remote_object_ids_for_session_owner).
+                conn.register_runtime_remote_object_ids_for_session_owner(
+                    session_id,
+                    remote_object_ids,
+                );
                 event.ensure_protocol_session_id(session_id);
                 out.push(event);
             }

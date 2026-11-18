@@ -641,7 +641,7 @@ impl CdpConnection {
         });
     }
 
-    pub(super) fn register_runtime_remote_object_ids_for_session_owner(
+    pub(crate) fn register_runtime_remote_object_ids_for_session_owner(
         &mut self,
         session_id: Option<&str>,
         object_ids: Vec<String>,
