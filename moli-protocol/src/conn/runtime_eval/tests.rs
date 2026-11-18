@@ -155,6 +155,130 @@ fn runtime_inspector_command_does_not_dequalify_another_owners_realm() {
     );
 }
 
+/// The JSON string literal of an expression the size of Playwright's injected
+/// script, full of escapes, some of which (`\u0041`, `\/`) serde_json would
+/// write differently if it encoded the string again, and of text shaped like a
+/// command's own `id` member.
+fn injected_script_sized_expression_literal() -> String {
+    let unit = r#"if (a) { b(\"{\\\"id\\\": 1}\", 'c\\d'); } \u0041\/\n"#;
+    let literal = format!("\"{}\"", unit.repeat(7_000));
+    assert!(literal.len() > 340_000, "{}", literal.len());
+    literal
+}
+
+// 2026-11-18: the renderer-bound rewrite parsed a whole Runtime.evaluate into a
+// Value and serialized it again to change its id, re-encoding a 346 KB
+// expression. Only the id's bytes change now: the escapes serde_json would
+// rewrite stay as they were.
+#[test]
+fn runtime_inspector_command_rewrite_splices_the_id_and_keeps_a_large_expression() {
+    let frontend_command_id = FrontendCommandId::new(77);
+    let params = format!(
+        r#"{{"expression":{},"contextId":3,"returnByValue":true}}"#,
+        injected_script_sized_expression_literal()
+    );
+    let raw_json = format!(
+        r#"{{"id":77,"method":"Runtime.evaluate","params":{params},"sessionId":"SID-large"}}"#
+    );
+
+    let rewritten = rewrite_runtime_inspector_command_for_renderer(
+        &raw_json,
+        Some((frontend_command_id, RendererCallId::new(11))),
+        Some("TID-current"),
+    )
+    .unwrap();
+
+    assert!(
+        rewritten
+            == format!(
+                r#"{{"id":11,"method":"Runtime.evaluate","params":{params},"sessionId":"SID-large"}}"#
+            ),
+        "only the id may change: {}",
+        &rewritten[..200]
+    );
+}
+
+#[test]
+fn runtime_inspector_command_rewrite_leaves_an_id_nested_in_params_alone() {
+    let raw_json = r#"{"method":"Runtime.callFunctionOn","params":{"id":8,"functionDeclaration":"() => ({\"id\": 8})","arguments":[{"value":{"id":8}}],"objectId":"8"},"id":8}"#;
+
+    let rewritten = rewrite_runtime_inspector_command_for_renderer(
+        raw_json,
+        Some((FrontendCommandId::new(8), RendererCallId::new(-3))),
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(
+        rewritten,
+        r#"{"method":"Runtime.callFunctionOn","params":{"id":8,"functionDeclaration":"() => ({\"id\": 8})","arguments":[{"value":{"id":8}}],"objectId":"8"},"id":-3}"#
+    );
+}
+
+#[test]
+fn runtime_inspector_command_rewrite_dequalifies_an_escaped_unique_context_id_in_place() {
+    let raw_json = r#"{"id":9,"method":"Runtime.evaluate","params":{"expression":"\u0041 + \"TID-current:1.2\"","uniqueContextId":"TID-current:\u0031\u0037.23"}}"#;
+
+    let rewritten = rewrite_runtime_inspector_command_for_renderer(
+        raw_json,
+        Some((FrontendCommandId::new(9), RendererCallId::new(4))),
+        Some("TID-current"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        rewritten,
+        r#"{"id":4,"method":"Runtime.evaluate","params":{"expression":"\u0041 + \"TID-current:1.2\"","uniqueContextId":"17.23"}}"#
+    );
+}
+
+// A command the scan does not cover goes through a Value, as before: a
+// repeated id is read as its last occurrence, and a command that is not an
+// object or not JSON fails as it did.
+#[test]
+fn runtime_inspector_command_rewrite_reads_unusual_commands_as_a_parsed_value_does() {
+    let rewritten = rewrite_runtime_inspector_command_for_renderer(
+        r#"{"id":8,"id":9,"method":"Runtime.evaluate","params":{"expression":"\u0041"}}"#,
+        Some((FrontendCommandId::new(9), RendererCallId::new(1))),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&rewritten).unwrap(),
+        json!({"id": 1, "method": "Runtime.evaluate", "params": {"expression": "A"}})
+    );
+
+    let error = rewrite_runtime_inspector_command_for_renderer(
+        r#"[{"id":9}]"#,
+        Some((FrontendCommandId::new(9), RendererCallId::new(1))),
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "runtime Inspector command must be a JSON object"
+    );
+
+    let error = rewrite_runtime_inspector_command_for_renderer(
+        r#"{"id":9,"method":"Runtime.evaluate""#,
+        Some((FrontendCommandId::new(9), RendererCallId::new(1))),
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "invalid runtime Inspector command JSON");
+
+    let error = rewrite_runtime_inspector_command_for_renderer(
+        r#"{"method":"Runtime.evaluate","params":null}"#,
+        Some((FrontendCommandId::new(9), RendererCallId::new(1))),
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "runtime Inspector command id mismatch: expected 9, got missing"
+    );
+}
+
 fn connection_with_bidi_page_session() -> CdpConnection {
     let mut conn = CdpConnection::default();
     let mut browser_context = BrowserContext::new("BID-owner".to_owned());
