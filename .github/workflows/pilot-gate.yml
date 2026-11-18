@@ -35,10 +35,14 @@ env:
 
 jobs:
   linux:
-    name: Linux - fmt, clippy, nextest, release, CDP smoke
+    name: ${{ matrix.leg }}
     # gate/mac-<label> branches run only the macOS job (diagnosis rounds).
     if: ${{ !inputs.macos_only && !startsWith(github.ref_name, 'gate/mac-') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [without-fix, with-fix]
     timeout-minutes: 330
     env:
       # 16 GB runner: two renderer rustc processes at once still fit, with swap as a margin.
@@ -48,6 +52,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: 602b9f6d16c7f768213270cf65633572104f0ade
 
       - name: Free disk and add swap
         run: |
@@ -86,28 +91,24 @@ jobs:
       - name: Install gdb
         run: sudo apt-get install --yes --no-install-recommends gdb
 
-      - name: Build the tests the workspace way
+      - name: Remove the fix (leg without-fix)
+        if: matrix.leg == 'without-fix'
         run: |
           set -euo pipefail
-          cargo nextest run --workspace --no-run
-          bin=$(find target/debug/deps -maxdepth 1 -type f -perm -u+x -name 'moli_renderer_v8-*' | head -1)
-          ls -la target/debug/deps/moli_renderer_v8-* | grep -v '\.d$' || true
-          echo "TEST_BIN=$bin" >> "$GITHUB_ENV"
+          grep -n "let future = Box::pin(future);" moli-renderer-v8/src/runtime/access.rs
+          sed -i '/let future = Box::pin(future);/d' moli-renderer-v8/src/runtime/access.rs
+          ! grep -q "let future = Box::pin(future);" moli-renderer-v8/src/runtime/access.rs
 
-      - name: The test alone, workspace build, in gdb
+      - name: Build the tests the workspace way
+        run: cargo nextest run --workspace --no-run
+
+      - name: The new large-future test
         run: |
           set +e
-          name=runtime::page_vm::tests::worker::worker_messages_and_service_workers::child_message_handler_external_dedicated_worker_binds_child_client_event_owner
-          echo "🔍 binary $TEST_BIN"
-          gdb -q -batch -nx -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint' -ex 'handle SIGUSR1 nostop noprint' \
-            -ex run -ex 'echo \n=== innermost 150 ===\n' -ex 'bt 150' -ex 'echo \n=== outermost 40 ===\n' -ex 'bt -40' \
-            --args "$TEST_BIN" --exact "$name" --test-threads 1 --nocapture 2>&1 | cut -c1-400 | tail -260
+          cargo nextest run --workspace --retries 0 -E 'test(=runtime::access::tests::a_large_owner_task_future_is_spawned_without_copies_on_the_stack)'
+          echo "large-future test exit $?"
           exit 0
 
-      - name: Feature differences
-        run: |
-          set +e
-          cargo tree -p moli-renderer-v8 -e features --workspace -i moli-renderer-v8 2>/dev/null | head -60
-          echo "--- alone ---"
-          cargo tree -p moli-renderer-v8 -e features -i moli-renderer-v8 2>/dev/null | head -60
-          exit 0
+      - name: The worker test, workspace build
+        if: matrix.leg == 'with-fix'
+        run: cargo nextest run --workspace --retries 0 -E 'test(=runtime::page_vm::tests::worker::worker_messages_and_service_workers::child_message_handler_external_dedicated_worker_binds_child_client_event_owner)'
