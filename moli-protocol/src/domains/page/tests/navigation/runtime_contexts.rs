@@ -555,10 +555,8 @@ async fn navigate_with_staged_runtime_enable_creates_initial_context_without_res
             let created = ctx.take_one();
             assert_eq!(created["method"], "Runtime.executionContextCreated");
             assert_eq!(created["sessionId"], "SID-1");
-            assert_eq!(
-                created["params"]["context"]["name"],
-                json!("data:text/html,<body>hi</body>")
-            );
+            // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
+            assert_eq!(created["params"]["context"]["name"], json!(""));
             assert!(created["params"]["context"]["id"].as_i64().is_some());
             assert_eq!(
                 created["params"]["context"]["auxData"]["isDefault"],

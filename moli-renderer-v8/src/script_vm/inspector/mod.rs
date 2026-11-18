@@ -51,6 +51,12 @@ use serde_json::{Value, json};
 use std::{cell::RefCell, collections::HashMap};
 use url::Url;
 
+/// The human-readable name a main world gives V8's inspector. pilot: Blink
+/// names only non-main worlds, so Chrome's Runtime.executionContextCreated
+/// reports `name: ""` for the main world of every frame; moli used the
+/// document URL.
+const MAIN_WORLD_INSPECTOR_CONTEXT_NAME: &[u8] = b"";
+
 pub(crate) struct DocumentInspectorBinding {
     context_registrations: DocumentInspectorContextRegistrations,
     agent: RendererDevToolsAgent,
@@ -345,7 +351,7 @@ impl DocumentInspectorBinding {
         let context_unique_id = backend.context_created_with_unique_id(
             context,
             context_group_id,
-            final_url.as_str().as_bytes(),
+            MAIN_WORLD_INSPECTOR_CONTEXT_NAME,
             origin.as_bytes(),
             aux_data.as_bytes(),
         );
@@ -477,7 +483,7 @@ impl DocumentInspectorBinding {
         let context_unique_id = backend.context_created_with_unique_id(
             context,
             context_group_id,
-            document_url.as_str().as_bytes(),
+            MAIN_WORLD_INSPECTOR_CONTEXT_NAME,
             origin.as_bytes(),
             aux_data.as_bytes(),
         );

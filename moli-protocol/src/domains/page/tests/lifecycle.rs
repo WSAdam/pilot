@@ -4573,10 +4573,8 @@ async fn playwright_chromium_page_init_command_sequence_returns_results() {
     );
     assert_eq!(default_context["method"], "Runtime.executionContextCreated");
     assert_eq!(default_context["sessionId"], "SID-1");
-    assert_eq!(
-        default_context["params"]["context"]["name"],
-        json!("about:blank")
-    );
+    // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
+    assert_eq!(default_context["params"]["context"]["name"], json!(""));
     assert_eq!(
         default_context["params"]["context"]["auxData"]["isDefault"],
         json!(true)

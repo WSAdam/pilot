@@ -20,9 +20,10 @@ async fn enable_with_page_emits_execution_context_created() {
     ctx.expect_result(11, json!({}), None);
     ctx.expect_event(
         "Runtime.executionContextCreated",
+        // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
         Some(&json!({
             "context": {
-                "name": "data:text/html,<html><title>ok</title><body></body></html>",
+                "name": "",
                 "origin": "://"
             }
         })),
@@ -601,7 +602,8 @@ async fn enable_with_http_page_emits_serialized_security_origin() {
         created["params"]["context"]["origin"],
         json!(format!("http://{addr}"))
     );
-    assert_eq!(created["params"]["context"]["name"], json!(page_url));
+    // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
+    assert_eq!(created["params"]["context"]["name"], json!(""));
 
     server.abort();
 }

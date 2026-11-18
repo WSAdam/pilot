@@ -1028,6 +1028,49 @@ async fn runtime_enable_events_include_renderer_root_frame_id_for_default_contex
         .await
         .expect("root-frame test page should close");
 }
+// 2026-11-18: the main world handed V8's inspector the document URL as its
+// name; Chrome's main world is unnamed in the top frame and in child frames.
+#[tokio::test(flavor = "multi_thread")]
+async fn runtime_enable_events_report_main_worlds_with_an_empty_name() {
+    let runtime = JsRuntime::initialize();
+    let loader =
+        ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).expect("default loader");
+    let page_url =
+        url::Url::parse("https://example.test/runtime-enable-main-world-name").expect("test url");
+    let mut page = create_test_html_page(
+        &runtime,
+        &loader,
+        page_url,
+        r#"<!doctype html><body><iframe srcdoc="<body>child main world</body>"></iframe></body>"#,
+    )
+    .await;
+
+    let events = runtime_enable_events_for_test(&page)
+        .await
+        .expect("Runtime.enable replay should run");
+    let main_worlds = events
+        .iter()
+        .filter(|message| {
+            message.get("method") == Some(&serde_json::json!("Runtime.executionContextCreated"))
+                && message["params"]["context"]["auxData"]["isDefault"] == serde_json::json!(true)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !main_worlds.is_empty(),
+        "Runtime.enable should replay the top-level main world: {events:?}"
+    );
+    for main_world in main_worlds {
+        assert_eq!(
+            main_world["params"]["context"]["name"],
+            serde_json::json!(""),
+            "a main world is unnamed, as in Chrome: {main_world:?}"
+        );
+    }
+
+    page.close_async()
+        .await
+        .expect("main-world name test page should close");
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn set_runtime_binding_state_updates_renderer_inspector_session_store() {
     let runtime = JsRuntime::initialize();

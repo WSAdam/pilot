@@ -71,8 +71,9 @@ async fn enable_uses_fresh_initial_document_without_adapter() {
     );
     assert!(
         messages.iter().any(|message| {
+            // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
             message["method"] == json!("Runtime.executionContextCreated")
-                && message["params"]["context"]["name"] == json!("about:blank")
+                && message["params"]["context"]["name"] == json!("")
                 && message["params"]["context"]["auxData"]["isDefault"] == json!(true)
                 && message["params"]["context"]["auxData"]["frameId"] == json!(target_id)
         }),
@@ -696,9 +697,10 @@ async fn enable_replays_fresh_initial_about_blank_default_context() {
     ctx.expect_result(12, json!({}), None);
     ctx.expect_event(
         "Runtime.executionContextCreated",
+        // 2026-11-18: the main world is unnamed, as in Chrome (was the URL).
         Some(&json!({
             "context": {
-                "name": "about:blank",
+                "name": "",
                 "auxData": {
                     "isDefault": true,
                     "frameId": target_id

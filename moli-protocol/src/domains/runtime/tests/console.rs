@@ -1230,8 +1230,11 @@ async fn runtime_timer_cross_document_navigation_with_history_api_emits_full_con
             );
             assert!(
                 ctx.sent.iter().any(|message| {
+                    // 2026-11-18: the main world is unnamed, as in Chrome, so
+                    // the new page's context is told apart by its origin.
                     message["method"] == json!("Runtime.executionContextCreated")
-                        && message["params"]["context"]["name"] == json!(auth_url)
+                        && message["params"]["context"]["origin"]
+                            == json!(format!("http://{auth_addr}"))
                         && message["params"]["context"]["auxData"]["frameId"] == json!("TID-1")
                 }),
                 "cross-document commit should create a Runtime context for the new page: {:?}",
