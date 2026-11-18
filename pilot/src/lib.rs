@@ -8,6 +8,7 @@
 
 pub mod argv;
 pub mod config;
+pub mod display;
 pub mod headful;
 pub mod identity;
 #[cfg(unix)]
