@@ -8,7 +8,7 @@ use super::ScriptVm;
 use super::native_module::RuntimeModuleScriptGraphStart;
 use super::post_parse::dynamic_script_execute_is_runnable_before_dom_content_loaded;
 use super::runtime_bindings::perform_microtask_checkpoint_and_report_pending_promise_rejections;
-use crate::context_bootstrap::dispatch_window_error_event_with_details;
+use crate::context_bootstrap::dispatch_window_error_event_for_exception_report;
 use crate::dynamic_script_owner::{DynamicScriptOwnerPoll, DynamicScriptRunnable};
 use crate::exception_reporting::{
     V8ExceptionReport, build_event_handler_exception_report, uncaught_script_error,
@@ -17,7 +17,7 @@ use crate::network::ResourceRequestClient;
 use crate::script_provenance::CompiledStringProvenance;
 use crate::style_engine::StyleInvalidationTurnExitBoundary;
 use crate::util::{
-    context_host_ptr_from_global_bridge, create_script_origin_with_base_url_and_nonce,
+    context_host_ptr_from_global_bridge, create_classic_script_origin,
     create_unnamed_page_script_origin, script_base_url_continuation_data, v8_string,
 };
 use crate::v8_execution_watchdog::{
@@ -143,19 +143,9 @@ fn report_script_exception_to_current_window(
     let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
         return;
     };
-    let error_value = report
-        .exception
-        .as_ref()
-        .map(|exception| v8::Local::new(scope, exception));
-    let _ = dispatch_window_error_event_with_details(
-        scope,
-        host_ptr,
-        &report.summary,
-        report.source.as_deref().unwrap_or(""),
-        report.line.unwrap_or(0) as u32,
-        report.column.unwrap_or(0) as u32,
-        error_value,
-    );
+    // pilot: with where the value was thrown and whether the script's errors
+    // are muted (exception_reporting.rs).
+    let _ = dispatch_window_error_event_for_exception_report(scope, host_ptr, report);
 }
 
 pub(crate) fn execute_source_text_on_current_stack(
@@ -209,14 +199,16 @@ fn execute_source_text_on_current_stack_with_completion(
         v8_string(&scope, source).ok_or_else(|| anyhow!("failed to allocate v8 source string"))?;
     // pilot: a script without a URL (a document-start script) still gets a
     // shared cross-origin origin, so DevTools gets the object of an error it
-    // creates (util.rs).
+    // creates (util.rs). A script fetched cross-origin without CORS is
+    // compiled with its errors muted, as in Chrome.
     let origin = match provenance {
-        Some(provenance) => create_script_origin_with_base_url_and_nonce(
+        Some(provenance) => create_classic_script_origin(
             &mut scope,
             provenance.source_url().as_str(),
             line_offset,
             Some(provenance.module_base_url()),
             script_nonce,
+            provenance.muted_errors(),
         ),
         None => create_unnamed_page_script_origin(&mut scope),
     };

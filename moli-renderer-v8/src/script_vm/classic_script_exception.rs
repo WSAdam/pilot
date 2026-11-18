@@ -9,7 +9,7 @@ use std::pin::pin;
 use anyhow::Result;
 
 use super::ScriptVm;
-use crate::context_bootstrap::dispatch_window_error_event_with_details;
+use crate::context_bootstrap::dispatch_window_error_event_for_exception_report;
 use crate::exception_reporting::{V8ExceptionReport, log_uncaught_script_exception};
 use crate::native_bridge::JsContextHost;
 
@@ -38,22 +38,13 @@ impl ScriptVm {
                 let scope = &mut scope.init();
                 let context = unsafe { v8::Local::new(scope, &*context_ptr) };
                 let scope = &mut v8::ContextScope::new(scope, context);
-                let error_value = report
-                    .exception
-                    .as_ref()
-                    .map(|exception| v8::Local::new(scope, exception));
                 // SAFETY: as_ptr() — V8 callbacks are re-entrant; borrow_mut() panics. See util.rs.
                 let host_ptr: *mut JsContextHost = (*context_host).as_ptr();
-                let dispatch_result = dispatch_window_error_event_with_details(
-                    scope,
-                    host_ptr,
-                    &report.summary,
-                    report.source.as_deref().unwrap_or(""),
-                    report.line.unwrap_or(0) as u32,
-                    report.column.unwrap_or(0) as u32,
-                    error_value,
-                )
-                .map_err(anyhow::Error::msg);
+                // pilot: with where the value was thrown and whether the
+                // script's errors are muted (exception_reporting.rs).
+                let dispatch_result =
+                    dispatch_window_error_event_for_exception_report(scope, host_ptr, report)
+                        .map_err(anyhow::Error::msg);
                 let checkpoint_result = Self::perform_microtask_checkpoints(scope, None);
                 dispatch_result?;
                 checkpoint_result

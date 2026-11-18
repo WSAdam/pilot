@@ -21,6 +21,45 @@ pub(super) struct V8ExceptionReport {
     pub(super) stack: Option<String>,
     pub(super) callback_context: Option<String>,
     pub(super) exception: Option<v8::Global<v8::Value>>,
+    /// pilot: what V8's message said about where the exception was thrown.
+    pub(super) throw_site: ExceptionThrowSite,
+}
+
+/// pilot: where V8 caught an exception, kept from its `v8::Message` for
+/// HTML's "report an exception", which runs after the message is gone.
+#[derive(Default)]
+pub(crate) struct ExceptionThrowSite {
+    /// The stack the value was thrown at, which V8 captures for uncaught
+    /// exceptions. DevTools reports a value with no stack of its own (a
+    /// string, a number, a plain object) with it, as Blink does with the
+    /// message's stack, and V8's Inspector sends the value's remote object
+    /// only when the script of its top frame is shared cross-origin.
+    pub(crate) stack_trace: Option<v8::Global<v8::StackTrace>>,
+    /// The script was fetched cross-origin without CORS, so its errors are
+    /// muted (HTML "muted errors"): the window `error` event reads "Script
+    /// error." with no location and a null error. Only such a script is
+    /// compiled opaque and not shared cross-origin (util.rs
+    /// `create_classic_script_origin`); V8's Inspector compiles
+    /// `Runtime.evaluate` code opaque but shared cross-origin.
+    pub(crate) muted_errors: bool,
+}
+
+impl ExceptionThrowSite {
+    pub(crate) fn from_message(
+        scope: &mut v8::PinScope<'_, '_>,
+        message: Option<v8::Local<'_, v8::Message>>,
+    ) -> Self {
+        let Some(message) = message else {
+            return Self::default();
+        };
+        let stack_trace = message
+            .get_stack_trace(scope)
+            .map(|stack_trace| v8::Global::new(scope, stack_trace));
+        Self {
+            stack_trace,
+            muted_errors: message.is_opaque() && !message.is_shared_cross_origin(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -134,8 +173,14 @@ pub(super) fn build_exception_report_without_stack<'s>(
     } else {
         summary
     };
+    // pilot: a script without a URL (eval and Function code, page.evaluate
+    // code, inserted inline and document-start scripts) has the resource name
+    // undefined, which is no source rather than the text "undefined": the
+    // error event's filename is then empty and DevTools gets no url, as in
+    // Chrome.
     let source = message
         .and_then(|message| message.get_script_resource_name(scope))
+        .filter(|value| !value.is_null_or_undefined())
         .and_then(|value| local_value_to_string(scope, value))
         .filter(|value| !value.is_empty());
     let line = message.and_then(|message| message.get_line_number(scope));
@@ -148,6 +193,7 @@ pub(super) fn build_exception_report_without_stack<'s>(
         .and_then(|message| message.get_source_line(scope))
         .map(|line| line.to_rust_string_lossy(scope))
         .filter(|line| !line.is_empty());
+    let throw_site = ExceptionThrowSite::from_message(scope, message);
     V8ExceptionReport {
         summary,
         source,
@@ -157,6 +203,7 @@ pub(super) fn build_exception_report_without_stack<'s>(
         stack: None,
         callback_context: None,
         exception: exception.map(|exception| v8::Global::new(scope, exception)),
+        throw_site,
     }
 }
 
@@ -730,6 +777,7 @@ fn invoke_callback_with_report_inner<'s>(
                     stack: None,
                     callback_context: Some(build_callback_context(&mut scope, receiver, args)),
                     exception: None,
+                    throw_site: ExceptionThrowSite::default(),
                 });
                 return returned_value.ok_or_else(|| {
                     Box::new(captured_report.expect("termination report should be present"))
@@ -760,6 +808,7 @@ fn invoke_callback_with_report_inner<'s>(
             stack: None,
             callback_context: None,
             exception: None,
+            throw_site: ExceptionThrowSite::default(),
         }))
     })
 }

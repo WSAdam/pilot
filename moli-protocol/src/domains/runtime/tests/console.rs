@@ -1577,6 +1577,10 @@ async fn runtime_exception_thrown_emits_timer_callback_warning() {
     let evaluate = take_response_by_id(&mut ctx, 20_686);
     assert!(evaluate.get("error").is_none(), "{evaluate:?}");
 
+    // pilot (2026-11-18): as in Chrome, text is "Uncaught" and the error is
+    // the exception object, whose description carries the message (Chromium
+    // headless shell 1223 sends text "Uncaught" whenever the object is
+    // present); this test used to find the message in text.
     wait_until_message(
         &mut ctx,
         None,
@@ -1585,9 +1589,10 @@ async fn runtime_exception_thrown_emits_timer_callback_warning() {
             message["method"] == json!("Runtime.exceptionThrown")
                 && message["params"]["exceptionDetails"]["executionContextId"]
                     == json!(execution_context_id)
-                && message["params"]["exceptionDetails"]["text"]
+                && message["params"]["exceptionDetails"]["text"] == json!("Uncaught")
+                && message["params"]["exceptionDetails"]["exception"]["description"]
                     .as_str()
-                    .is_some_and(|text| text.contains("timer boom"))
+                    .is_some_and(|description| description.contains("timer boom"))
         },
     )
     .await;
