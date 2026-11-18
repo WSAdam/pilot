@@ -2705,6 +2705,7 @@ async fn worker_main(
                         stack: None,
                         callback_context: None,
                         exception: None,
+                        throw_site: Default::default(),
                     };
                     // Propagation to the owner's global uses omitError: the
                     // child exception cannot cross the worker agent boundary.
@@ -3522,6 +3523,7 @@ fn worker_bootstrap_error(
             stack: None,
             callback_context: None,
             exception: None,
+            throw_site: Default::default(),
         },
         exception.map(|value| v8::Global::new(scope, value)),
         event_kind,

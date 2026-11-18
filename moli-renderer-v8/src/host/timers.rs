@@ -5,7 +5,7 @@ use crate::v8_execution_watchdog::{
 };
 use crate::{
     context_bootstrap::{
-        CHILD_BROWSING_CONTEXT_HANDLE_SLOT, dispatch_window_error_event_with_details,
+        CHILD_BROWSING_CONTEXT_HANDLE_SLOT, dispatch_window_error_event_for_exception_report,
     },
     document_runtime::DomHandle,
     native_bridge::{
@@ -1262,6 +1262,7 @@ fn run_window_timer_source(
             stack: None,
             callback_context: None,
             exception: None,
+            throw_site: Default::default(),
         }));
     };
     let origin = create_script_origin_with_base_url_and_nonce(
@@ -1317,19 +1318,9 @@ fn report_window_timer_exception<'s>(
         unsafe { &mut *host_ptr }.dispatch_child_window_event(scope, handle, "error", event);
         return;
     }
-    let error_value = report
-        .exception
-        .as_ref()
-        .map(|exception| v8::Local::new(scope, exception));
-    let _ = dispatch_window_error_event_with_details(
-        scope,
-        host_ptr,
-        &report.summary,
-        report.source.as_deref().unwrap_or(""),
-        report.line.unwrap_or(0) as u32,
-        report.column.unwrap_or(0) as u32,
-        error_value,
-    );
+    // pilot: with where the value was thrown and whether the script's errors
+    // are muted (exception_reporting.rs).
+    let _ = dispatch_window_error_event_for_exception_report(scope, host_ptr, report);
 }
 
 fn callback_error_window_handle<'s>(

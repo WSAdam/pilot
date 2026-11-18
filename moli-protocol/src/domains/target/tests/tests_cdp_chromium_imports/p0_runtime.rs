@@ -55,6 +55,10 @@ async fn rust_cdp_p0_runtime_exception_thrown_event_contract() {
         .await;
     assert_eq!(response["result"]["result"]["value"], json!("scheduled"));
 
+    // pilot (2026-11-18): as in Chrome, text is "Uncaught" and the error is
+    // the exception object, whose description carries the message (Chromium
+    // headless shell 1223 sends text "Uncaught" whenever the object is
+    // present); this test used to find the message in text.
     wait_until_messages(
         &mut ctx,
         Some(page.session_id.as_str()),
@@ -62,9 +66,10 @@ async fn rust_cdp_p0_runtime_exception_thrown_event_contract() {
         |messages| {
             messages.iter().any(|message| {
                 message["method"] == json!("Runtime.exceptionThrown")
-                    && message["params"]["exceptionDetails"]["text"]
+                    && message["params"]["exceptionDetails"]["text"] == json!("Uncaught")
+                    && message["params"]["exceptionDetails"]["exception"]["description"]
                         .as_str()
-                        .is_some_and(|text| text.contains("p0 async boom"))
+                        .is_some_and(|description| description.contains("p0 async boom"))
             })
         },
     )

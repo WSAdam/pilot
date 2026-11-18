@@ -681,6 +681,12 @@ pub struct BackgroundRuntimeConsoleApiCalledEvent {
 pub struct BackgroundRuntimeExceptionThrownEvent {
     session_id: Option<String>,
     event: ScriptExceptionEvent,
+    /// pilot: the params of a `Runtime.exceptionThrown` that V8's Inspector
+    /// sent, which go to the frontend as they are, as Chrome sends them:
+    /// `exceptionDetails.text` is "Uncaught" when the exception object is
+    /// present, and the url, script id and exception are left out when V8
+    /// has none. `None` for an exception Moli reports itself.
+    inspector_params: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1408,6 +1414,22 @@ impl ProtocolDeliveryEnvelope {
         Self::wrap_runtime_exception_thrown(Box::new(BackgroundRuntimeExceptionThrownEvent {
             session_id: session_id.map(str::to_owned),
             event,
+            inspector_params: None,
+        }))
+    }
+
+    /// pilot: a `Runtime.exceptionThrown` that V8's Inspector sent with
+    /// `inspector_params`. The frontend gets those params unchanged; `event`
+    /// is the automation sidecar (BiDi log entries) read from them.
+    pub(crate) fn runtime_exception_thrown_from_inspector(
+        session_id: Option<&str>,
+        event: ScriptExceptionEvent,
+        inspector_params: Value,
+    ) -> Self {
+        Self::wrap_runtime_exception_thrown(Box::new(BackgroundRuntimeExceptionThrownEvent {
+            session_id: session_id.map(str::to_owned),
+            event,
+            inspector_params: Some(inspector_params),
         }))
     }
 
@@ -4317,9 +4339,16 @@ impl BackgroundRuntimeConsoleApiCalledEvent {
 
 impl BackgroundRuntimeExceptionThrownEvent {
     fn into_protocol_message(self) -> Value {
+        // pilot: V8's own params when it sent them; Moli's rebuilt params put
+        // the exception's description in `text` and invent an Error object,
+        // url and script id when V8 had none.
+        let params = match self.inspector_params {
+            Some(params) => params,
+            None => runtime_exception_thrown_protocol_params(self.event),
+        };
         build_event(
             "Runtime.exceptionThrown",
-            runtime_exception_thrown_protocol_params(self.event),
+            params,
             self.session_id.as_deref(),
         )
     }

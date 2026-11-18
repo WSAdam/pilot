@@ -1093,6 +1093,31 @@ fn native_module_evaluation_exception_error(
     }
 }
 
+/// pilot: a module script whose evaluation threw. HTML's "run a module
+/// script" reports that exception, the module's own error, to the window
+/// (and so to DevTools and Playwright's `pageerror`), as Blink's
+/// `V8ScriptRunner::ReportException` does. The returned failure keeps Moli's
+/// text for diagnostics and is marked reported, so the script's failure does
+/// not also report a stand-in Error built from that text (host/scripts.rs
+/// `ModuleFailurePolicy::EvaluationExceptionReported`).
+fn report_module_script_evaluation_exception<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    exception: v8::Local<'s, v8::Value>,
+) -> ModuleLoadError {
+    let error = native_module_evaluation_exception_error(
+        scope,
+        exception,
+        "native module graph evaluation rejected",
+    );
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return error;
+    };
+    match crate::context_bootstrap::report_exception_to_window(scope, host_ptr, exception) {
+        Ok(()) => error.with_exception_reported(),
+        Err(_) => error,
+    }
+}
+
 fn script_error_constructor_kind_from_value(
     scope: &mut v8::PinScope<'_, '_>,
     value: v8::Local<'_, v8::Value>,

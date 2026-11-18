@@ -596,7 +596,15 @@ pub(crate) fn protocol_message_background_event_for_target(
                 BackgroundProtocolEvent::runtime_console_api_called(session_id, event)
             }
             (Some("Runtime.exceptionThrown"), AutomationEvent::ScriptException(event)) => {
-                BackgroundProtocolEvent::runtime_exception_thrown(session_id, event)
+                // pilot: the frontend gets V8's params as they are, as in
+                // Chrome (text "Uncaught" beside the exception object, no
+                // url for a script without one, no invented Error).
+                let inspector_params = message.get("params").cloned().unwrap_or(Value::Null);
+                BackgroundProtocolEvent::runtime_exception_thrown_from_inspector(
+                    session_id,
+                    event,
+                    inspector_params,
+                )
             }
             (_, event) => BackgroundProtocolEvent::immediate_automation_event(message, event),
         };
@@ -3181,6 +3189,90 @@ mod tests {
                         })
                     })
         ));
+    }
+
+    // 2026-11-18: Moli rebuilt every Runtime.exceptionThrown from its own event record (conn/output.rs runtime_exception_thrown_protocol_params), so text carried the exception's description instead of V8's "Uncaught", and a report V8 sent without url, script id or exception object (a muted cross-origin script, code without a URL) gained url "", scriptId "" and a stand-in Error.
+    #[test]
+    fn runtime_exception_thrown_reaches_the_frontend_with_the_params_v8_sent() {
+        let with_object = json!({
+            "timestamp": 12.5,
+            "exceptionDetails": {
+                "exceptionId": 1,
+                "text": "Uncaught",
+                "lineNumber": 0,
+                "columnNumber": 33,
+                "scriptId": "17",
+                "stackTrace": {
+                    "callFrames": [{
+                        "functionName": "eval",
+                        "scriptId": "17",
+                        "url": "",
+                        "lineNumber": 0,
+                        "columnNumber": 33
+                    }]
+                },
+                "exception": {
+                    "type": "object",
+                    "subtype": "error",
+                    "className": "Error",
+                    "description": "Error: from page.evaluate\n    at eval (<anonymous>:1:34)",
+                    "objectId": "4.3.1"
+                },
+                "executionContextId": 3
+            }
+        });
+        let event = protocol_message_background_event(json!({
+            "method": "Runtime.exceptionThrown",
+            "params": with_object.clone(),
+            "sessionId": "SID-runtime"
+        }));
+        let (message, automation_event) = event.into_parts();
+        assert_eq!(message["sessionId"], "SID-runtime");
+        assert_eq!(
+            message["params"], with_object,
+            "the frontend gets V8's params unchanged: {message}"
+        );
+        assert_eq!(message["params"]["exceptionDetails"]["text"], "Uncaught");
+        assert!(
+            message["params"]["exceptionDetails"].get("url").is_none(),
+            "no url for code without one: {message}"
+        );
+        assert!(
+            matches!(
+                automation_event,
+                Some(AutomationEvent::ScriptException(ref event))
+                    if event.exception.text.starts_with("Error: from page.evaluate")
+            ),
+            "the automation sidecar (BiDi log entries) still reads the description: {automation_event:?}"
+        );
+
+        let muted = json!({
+            "timestamp": 13.5,
+            "exceptionDetails": {
+                "exceptionId": 2,
+                "text": "Uncaught Error: nocors at load",
+                "lineNumber": 1,
+                "columnNumber": 6,
+                "scriptId": "6",
+                "url": "http://other.test/throws.js",
+                "executionContextId": 3
+            }
+        });
+        let event = protocol_message_background_event(json!({
+            "method": "Runtime.exceptionThrown",
+            "params": muted.clone(),
+            "sessionId": "SID-runtime"
+        }));
+        let (message, _) = event.into_parts();
+        assert_eq!(
+            message["params"], muted,
+            "a report V8 sent without the exception object gets none: {message}"
+        );
+        assert!(
+            message["params"]["exceptionDetails"]
+                .get("exception")
+                .is_none()
+        );
     }
 
     #[test]

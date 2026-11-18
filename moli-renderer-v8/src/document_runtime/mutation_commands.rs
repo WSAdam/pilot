@@ -2049,18 +2049,10 @@ fn execute_committed_inline_classic_script(
             };
             scope.reset();
             crate::exception_reporting::log_uncaught_script_exception(&report);
-            let error_value = report
-                .exception
-                .as_ref()
-                .map(|exception| v8::Local::new(&scope, exception));
-            let _ = crate::context_bootstrap::dispatch_window_error_event_with_details(
-                &mut scope,
-                host_ptr,
-                &report.summary,
-                report.source.as_deref().unwrap_or(""),
-                report.line.unwrap_or(0) as u32,
-                report.column.unwrap_or(0) as u32,
-                error_value,
+            // pilot: with where the value was thrown, so a thrown value with
+            // no stack of its own reaches DevTools as itself.
+            let _ = crate::context_bootstrap::dispatch_window_error_event_for_exception_report(
+                &mut scope, host_ptr, &report,
             );
         }
     }

@@ -713,13 +713,20 @@ struct RendererInspectorExceptionSink(Weak<v8::inspector::V8Inspector>);
 /// with the exception as a remote object, so Playwright sees a `pageerror`
 /// with the error's own name, message and stack; V8 also replays it to a
 /// session that enables Runtime later.
-pub(crate) fn report_uncaught_exception_to_devtools(
-    scope: &mut v8::PinScope<'_, '_>,
+///
+/// `throw_site_stack_trace` is the stack V8 captured where the value was
+/// thrown; `muted_errors` says its script was fetched cross-origin without
+/// CORS. `message`, `url` and the location are the unsanitized ones.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn report_uncaught_exception_to_devtools<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
     message: &str,
     url: &str,
     line_number: u32,
     column_number: u32,
-    exception: v8::Local<'_, v8::Value>,
+    exception: v8::Local<'s, v8::Value>,
+    throw_site_stack_trace: Option<v8::Local<'s, v8::StackTrace>>,
+    muted_errors: bool,
 ) {
     let Some(inspector) = scope
         .get_slot::<RendererInspectorExceptionSink>()
@@ -733,24 +740,32 @@ pub(crate) fn report_uncaught_exception_to_devtools(
         .ok()
         .and_then(|object| object.get_creation_context(scope))
         .unwrap_or_else(|| scope.get_current_context());
-    let stack_trace =
-        inspector.create_stack_trace(v8::Exception::get_stack_trace(scope, exception));
     // V8 sends the exception object only when the script of the report's
-    // script id, here the top frame of the error's own stack, is shared
-    // cross-origin (V8ConsoleMessage::reportToFrontend). Page scripts are
-    // (util.rs PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN), but a thrown value with
-    // no stack of its own (a string, a plain object) has no script id here,
-    // so V8 sends it as this text alone (a TODO.md item) and Moli describes
-    // the exception from it. So the text is what Chrome's remote object would
-    // describe: an error's stack, from which Playwright reads the name,
-    // message and frames.
-    let detailed_message = uncaught_exception_description(scope, exception).unwrap_or_else(|| {
-        if message.starts_with("Uncaught") {
-            message.to_owned()
-        } else {
-            format!("Uncaught {message}")
-        }
-    });
+    // script id, here the top frame of this stack, is shared cross-origin
+    // (V8ConsoleMessage::reportToFrontend). An error reports the stack it was
+    // created with; a thrown value with no stack of its own (a string, a
+    // plain object) reports the stack it was thrown at, as Blink reports the
+    // message's stack, so it reaches DevTools as its own remote object too.
+    let stack_trace = inspector.create_stack_trace(
+        v8::Exception::get_stack_trace(scope, exception).or(throw_site_stack_trace),
+    );
+    // V8 sends this text instead of the exception object when that script is
+    // not shared cross-origin. A muted script's report reads as Chrome's
+    // does ("Uncaught Error: message", from which Playwright names the error
+    // "Uncaught Error"). Otherwise the object is missing only where pilot
+    // still compiles a script without the flag (an internal script), and the
+    // text is what Chrome's remote object would describe: an error's stack,
+    // from which Playwright reads the name, message and frames.
+    let uncaught_message = if message.starts_with("Uncaught") {
+        message.to_owned()
+    } else {
+        format!("Uncaught {message}")
+    };
+    let detailed_message = if muted_errors {
+        uncaught_message
+    } else {
+        uncaught_exception_description(scope, exception).unwrap_or(uncaught_message)
+    };
     inspector.exception_thrown(
         context,
         v8::inspector::StringView::from(b"Uncaught".as_slice()),

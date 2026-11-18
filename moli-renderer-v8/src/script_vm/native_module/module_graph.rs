@@ -510,12 +510,13 @@ impl ScriptVm {
                         error.to_string(),
                     )));
                 }
+                // pilot: a module script whose evaluation threw reports its
+                // own exception here, as the module's error (native_module.rs
+                // report_module_script_evaluation_exception).
                 if root_module.get_status() == v8::ModuleStatus::Errored {
                     let exception = root_module.get_exception();
-                    return Ok(Err(native_module_evaluation_exception_error(
-                        &mut scope,
-                        exception,
-                        "native module graph evaluation rejected",
+                    return Ok(Err(report_module_script_evaluation_exception(
+                        &mut scope, exception,
                     )));
                 }
                 if let Some(promise) = promise {
@@ -523,10 +524,8 @@ impl ScriptVm {
                         v8::PromiseState::Fulfilled => return Ok(Ok(None)),
                         v8::PromiseState::Rejected => {
                             let result = promise.result(&scope);
-                            return Ok(Err(native_module_evaluation_exception_error(
-                                &mut scope,
-                                result,
-                                "native module graph evaluation rejected",
+                            return Ok(Err(report_module_script_evaluation_exception(
+                                &mut scope, result,
                             )));
                         }
                         v8::PromiseState::Pending => {

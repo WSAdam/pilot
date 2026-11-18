@@ -166,12 +166,20 @@ pub(crate) enum ModuleFailurePolicy {
     ModuleTreeLoadFailure,
     GraphFailure,
     EvaluationFailure,
+    /// pilot: the module script's evaluation threw and its own exception was
+    /// already reported to the window, as HTML's "run a module script"
+    /// reports it. Nothing more is reported, and an external script still
+    /// gets its `load` event, as in Chrome.
+    EvaluationExceptionReported,
 }
 
 impl ModuleFailurePolicy {
     pub(crate) fn for_module_load_error(error: &ModuleLoadError) -> Self {
         if error.is_top_level_module_load_failure() {
             return Self::TopLevelLoadFailure;
+        }
+        if error.exception_reported() {
+            return Self::EvaluationExceptionReported;
         }
         match error.stage() {
             ModuleLoadStage::Fetch => Self::ModuleTreeLoadFailure,

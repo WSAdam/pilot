@@ -1,5 +1,5 @@
 use crate::{
-    context_bootstrap::dispatch_window_error_event_with_details,
+    context_bootstrap::dispatch_window_error_event_for_exception_report,
     document_runtime::DomHandle,
     exception_reporting::build_exception_report_without_stack,
     native_bridge::{JsContextHost, OwnerDispatchScope},
@@ -131,18 +131,6 @@ fn compile_event_attribute_function<'s>(
     let report = build_exception_report_without_stack(&mut scope, exception, message);
     scope.reset();
 
-    let error_value = report
-        .exception
-        .as_ref()
-        .map(|exception| v8::Local::new(&scope, exception));
-    let _ = dispatch_window_error_event_with_details(
-        &mut scope,
-        host_ptr,
-        &report.summary,
-        report.source.as_deref().unwrap_or(""),
-        report.line.unwrap_or(0) as u32,
-        report.column.unwrap_or(0) as u32,
-        error_value,
-    );
+    let _ = dispatch_window_error_event_for_exception_report(&mut scope, host_ptr, &report);
     None
 }

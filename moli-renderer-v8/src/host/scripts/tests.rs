@@ -2478,6 +2478,53 @@ fn explicit_module_failure_policy_overrides_opaque_message_text() {
     );
 }
 
+// 2026-11-18: a module script whose evaluation threw was reported through the script's failure as a stand-in Error built from Moli's wrapper text ("NativeEsmEvaluateFailed: ..."); its own exception is now reported when the evaluation throws, so the failure reports nothing more and an external module script still gets load, as in Chrome.
+#[test]
+fn a_module_evaluation_exception_already_reported_plans_only_the_load_event() {
+    let node = NativeNodeId::new(23);
+    let mut scripts = HostScriptScheduler::default();
+    scripts.register_script_handle_with_source(
+        "module-evaluation-reported",
+        node,
+        ScriptHandleSource::RuntimeOwned,
+    );
+    assert!(scripts.reserve_script_start("module-evaluation-reported", node));
+    assert!(scripts.finish_script_start(
+        "module-evaluation-reported",
+        node,
+        ScriptStartCommitKind::ExecutePrepared
+    ));
+
+    let error = crate::module_runtime::ModuleLoadError::new(
+        crate::module_runtime::ModuleLoadStage::Evaluate,
+        "native module graph evaluation rejected: Error: module at load",
+    )
+    .with_error_constructor(crate::types::ScriptErrorConstructorKind::Error)
+    .with_exception_reported();
+    assert_eq!(
+        ModuleFailurePolicy::for_module_load_error(&error),
+        ModuleFailurePolicy::EvaluationExceptionReported
+    );
+
+    let tasks = scripts.plan_script_failure_page_tasks(
+        ScriptKind::Module,
+        ScriptSourceKind::External,
+        Some("module-evaluation-reported"),
+        error.message(),
+        Some("/module.mjs"),
+        Some(ModuleFailurePolicy::EvaluationExceptionReported),
+        error.error_constructor(),
+    );
+    assert_eq!(tasks.len(), 1, "only the load event: {tasks:?}");
+    assert!(matches!(
+        tasks.first(),
+        Some(PageTask::DispatchScriptEvent(ScriptEventTask {
+            kind: ScriptEventKind::Load,
+            handle
+        })) if handle == "module-evaluation-reported"
+    ));
+}
+
 #[test]
 fn inline_importmap_failure_plans_only_window_report_task() {
     let node = NativeNodeId::new(15);
