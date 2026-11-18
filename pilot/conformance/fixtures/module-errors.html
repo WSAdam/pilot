@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<title>Module errors</title>
+<script>
+  // Each module script below throws an Error at load and keeps it in
+  // window.thrown by its message, so a test can check that the window error
+  // event and DevTools carry that very error.
+  window.thrown = {};
+  window.errorEvents = [];
+  window.moduleLoads = [];
+  addEventListener('error', (event) => {
+    errorEvents.push({ message: event.message, filename: event.filename, error: event.error });
+  });
+</script>
+<script type="module">throw (window.thrown['module at load'] = new Error('module at load'));</script>
+<script type="module" src="module-throws.mjs" onload="moduleLoads.push('module-throws.mjs')"></script>

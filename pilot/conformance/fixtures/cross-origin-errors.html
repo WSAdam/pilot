@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<title>Cross-origin script errors</title>
+<script>
+  // Records every window error event. A test loads throws-at-load.js from
+  // this origin and from another one, with and without CORS, by loadScript.
+  window.errorEvents = [];
+  addEventListener('error', (event) => {
+    errorEvents.push({
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error === null ? null : `${event.error.name}: ${event.error.message}`,
+    });
+  });
+  window.loadScript = (src, crossOrigin) => new Promise((done) => {
+    const script = document.createElement('script');
+    script.src = src;
+    if (crossOrigin) script.crossOrigin = crossOrigin;
+    script.onload = () => done('load');
+    script.onerror = () => done('error');
+    document.head.append(script);
+  });
+</script>

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<title>Errors from scripts without a URL</title>
+<script>
+  // Each function makes code without a URL of its own throw an Error: eval
+  // code, a Function body and an inline script inserted by a DOM call.
+  window.errorEvents = [];
+  addEventListener('error', (event) => {
+    errorEvents.push({ message: event.message, filename: event.filename });
+  });
+  window.throwFromEval = () => setTimeout(() => eval("throw new Error('from eval')"), 0);
+  window.throwFromFunction = () => setTimeout(() => new Function("throw new Error('from Function')")(), 0);
+  window.insertThrowingScript = () => {
+    const script = document.createElement('script');
+    script.textContent = "throw new Error('from an inserted script')";
+    document.body.append(script);
+  };
+</script>
