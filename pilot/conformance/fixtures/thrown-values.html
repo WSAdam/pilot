@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<title>Thrown values</title>
+<script>
+  // Every script on this page throws a value that is not an Error, so the
+  // value has no stack of its own. The plain objects are kept so a test can
+  // check that DevTools reports those very objects.
+  window.plainObject = { code: 7 };
+  window.throwStringFromTimer = () => setTimeout(() => {
+    throw 'a string from a timer';
+  }, 0);
+  window.throwObjectFromTimer = () => setTimeout(() => {
+    throw (window.timerObject = { code: 8 });
+  }, 0);
+</script>
+<script>throw 'a string at load';</script>
+<script>throw 42;</script>
+<script>throw window.plainObject;</script>
