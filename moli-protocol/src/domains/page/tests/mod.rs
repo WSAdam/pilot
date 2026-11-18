@@ -33,6 +33,27 @@ fn take_response_by_id(ctx: &mut TestContext, id: u64) -> serde_json::Value {
     ctx.sent.remove(pos)
 }
 
+/// Whether the renderer granted universal access to the isolated world `name`,
+/// read from the realm inventory of `session_id`'s page:
+/// Runtime.executionContextCreated does not say, as in Chrome.
+async fn fixture_isolated_world_grant(
+    ctx: &mut TestContext,
+    session_id: &str,
+    name: &str,
+) -> Option<bool> {
+    ctx.run_fixture_page_query(
+        Some(session_id),
+        "fixture runtime realm inventory",
+        |page| page.start_runtime_realm_inventory(),
+        |page, completed| page.finish_runtime_realm_inventory(completed),
+    )
+    .await
+    .expect("runtime realm inventory should run")
+    .into_iter()
+    .find(|realm| realm.name == name)
+    .and_then(|realm| realm.grant_universal_access)
+}
+
 fn renderer_dialog_source_document_for_test() -> RendererDocumentLifecycleIdentity {
     let page_id = moli_core::PageId::new_for_testing(77);
     RendererDocumentLifecycleIdentity {

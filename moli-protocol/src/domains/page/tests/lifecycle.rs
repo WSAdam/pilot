@@ -4729,9 +4729,11 @@ async fn playwright_chromium_page_init_command_sequence_returns_results() {
         created["params"]["context"]["name"],
         json!("__playwright_utility_world_page")
     );
+    // 2026-11-18: as in Chrome, the utility world's auxData does not carry
+    // grantUniversalAccess (was true); the renderer's realm inventory holds it.
     assert_eq!(
-        created["params"]["context"]["auxData"]["grantUniversalAccess"],
-        json!(true)
+        created["params"]["context"]["auxData"].get("grantUniversalAccess"),
+        None
     );
 
     assert!(
@@ -4742,4 +4744,8 @@ async fn playwright_chromium_page_init_command_sequence_returns_results() {
         ctx.sent
     );
     ctx.sent.clear();
+    assert_eq!(
+        fixture_isolated_world_grant(&mut ctx, "SID-1", "__playwright_utility_world_page").await,
+        Some(true)
+    );
 }
