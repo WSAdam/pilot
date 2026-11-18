@@ -1740,6 +1740,51 @@ impl CdpConnection {
             .is_some_and(|owner| owner.target().has_pending_javascript_dialog())
     }
 
+    /// pilot: Chrome lets every session with the Page domain enabled answer a
+    /// JavaScript dialog of its page, not only the session it was first shown
+    /// to. Returns the owner of the session that holds the pending dialog:
+    /// `owner` itself when it holds one, otherwise, when `owner` has Page
+    /// enabled, another session attached to the same target, addressed by its
+    /// wire session id when it has one.
+    pub(crate) fn javascript_dialog_holder_for_owner(
+        &self,
+        owner: &CommandOwnerScope,
+    ) -> Option<CommandOwnerScope> {
+        let owner_ref = self.target_session_owner_ref_for_owner(owner)?;
+        let own_state = owner_ref.page_session_state();
+        if own_state.is_some_and(|state| !state.javascript_dialog_state.is_empty()) {
+            return Some(owner.clone());
+        }
+        if !own_state.is_some_and(|state| state.page_domain_enabled) {
+            return None;
+        }
+        let sessions = &owner_ref.target().devtools_sessions;
+        let holds_dialog = |state: &DevToolsSessionState| {
+            !state.page_session_state.javascript_dialog_state.is_empty()
+        };
+        let (session_key, wire_session_id) = if holds_dialog(sessions.primary()) {
+            (DevToolsSessionKey::Primary, sessions.primary_session_id())
+        } else {
+            let (session_id, _) = sessions
+                .attached_entries()
+                .find(|&(_, state)| holds_dialog(state))?;
+            (
+                DevToolsSessionKey::Attached(session_id.to_owned()),
+                Some(session_id),
+            )
+        };
+        Some(match wire_session_id {
+            Some(session_id) if self.session_route(Some(session_id)).is_some() => {
+                CommandOwnerScope::for_session(session_id)
+            }
+            _ => CommandOwnerScope::for_route(CdpSessionRoute::PageTarget {
+                browser_context_id: owner_ref.browser_context.id.clone(),
+                target_id: owner_ref.target_id.clone(),
+                session_key,
+            }),
+        })
+    }
+
     pub(crate) fn target_devtools_session_state_for_session(
         &self,
         session_id: Option<&str>,

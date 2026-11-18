@@ -1813,6 +1813,49 @@ impl ProtocolDeliveryEnvelope {
         ))
     }
 
+    /// pilot: Chrome sends Page.javascriptDialogOpening to every session
+    /// attached to the page that has the Page domain enabled. This is the copy
+    /// for a session other than the one the dialog was installed for: the same
+    /// CDP message with no automation event, so a WebDriver BiDi client still
+    /// sees one userPromptOpened per dialog.
+    pub(crate) fn page_javascript_dialog_opening_for_peer_session(
+        session_id: Option<&str>,
+        event: PageJavaScriptDialogOpeningEvent,
+    ) -> Self {
+        Self::immediate(
+            BackgroundPageJavaScriptDialogOpeningEvent {
+                session_id: session_id.map(str::to_owned),
+                frame_id: event.frame_id.as_ref().map(|id| id.as_str().to_owned()),
+                url: event.url,
+                message: event.message,
+                dialog_type: event.dialog_type,
+                has_browser_handler: event.has_browser_handler,
+                default_prompt: event.default_prompt,
+            }
+            .into_protocol_message(),
+        )
+    }
+
+    /// pilot: like Chrome, Page.javascriptDialogClosed also reaches every
+    /// other session with the Page domain enabled; the copy carries no
+    /// automation event, as above.
+    pub(crate) fn page_javascript_dialog_closed_for_peer_session(
+        session_id: Option<&str>,
+        event: UserPromptClosedEvent,
+    ) -> Self {
+        Self::immediate(
+            BackgroundPageJavaScriptDialogClosedEvent {
+                session_id: session_id.map(str::to_owned),
+                target_id: event.target_id.as_ref().map(|id| id.as_str().to_owned()),
+                frame_id: event.frame_id.as_str().to_owned(),
+                prompt_type: event.prompt_type,
+                accepted: event.accepted,
+                user_text: event.user_text,
+            }
+            .into_protocol_message(),
+        )
+    }
+
     pub(crate) fn page_screencast_visibility_changed(
         session_id: Option<&str>,
         visible: bool,

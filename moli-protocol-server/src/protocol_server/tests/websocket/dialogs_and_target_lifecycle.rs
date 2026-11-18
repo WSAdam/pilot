@@ -754,6 +754,265 @@ async fn websocket_cdp_page_navigate_runs_beforeunload_without_dialog_before_use
     protocol_server.abort();
 }
 
+/// The guard page with sticky activation, driven by `session_id`, plus a
+/// second session attached to the same page with Page enabled, as Playwright's
+/// `context.newCDPSession(page)` followed by `Page.enable` sets it up.
+struct TwoSessionGuardPage {
+    session_id: String,
+    second_session_id: String,
+}
+
+async fn two_session_guard_page(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> TwoSessionGuardPage {
+    let session_id = cdp_create_default_session_and_navigate(socket, BEFOREUNLOAD_GUARD_URL).await;
+    let gesture = send_cdp_command(
+        socket,
+        7,
+        "Runtime.evaluate",
+        Some(&session_id),
+        json!({ "expression": "document.title", "returnByValue": true, "userGesture": true }),
+    )
+    .await;
+    assert!(
+        gesture.iter().any(|message| message["id"] == json!(7_u64)
+            && message["result"]["result"]["value"] == json!("guard")),
+        "the user gesture must reach the guard page: {gesture:#?}"
+    );
+    let tree = send_cdp_command(
+        socket,
+        20,
+        "Page.getFrameTree",
+        Some(&session_id),
+        json!({}),
+    )
+    .await;
+    let target_id = tree
+        .iter()
+        .find(|message| message["id"] == json!(20_u64))
+        .and_then(|message| message["result"]["frameTree"]["frame"]["id"].as_str())
+        .expect("main frame id")
+        .to_owned();
+    let attached = send_cdp_command(
+        socket,
+        21,
+        "Target.attachToTarget",
+        None,
+        json!({ "targetId": target_id, "flatten": true }),
+    )
+    .await;
+    let second_session_id = attached
+        .iter()
+        .find(|message| message["id"] == json!(21_u64))
+        .and_then(|message| message["result"]["sessionId"].as_str())
+        .expect("second session id")
+        .to_owned();
+    assert_ne!(second_session_id, session_id);
+    let enabled = send_cdp_command(
+        socket,
+        22,
+        "Page.enable",
+        Some(&second_session_id),
+        json!({}),
+    )
+    .await;
+    assert!(
+        enabled
+            .iter()
+            .any(|message| message["id"] == json!(22_u64) && message["result"] == json!({})),
+        "Page.enable on the second session: {enabled:#?}"
+    );
+    TwoSessionGuardPage {
+        session_id,
+        second_session_id,
+    }
+}
+
+/// Sends `Page.navigate` (id 8) from the first session and returns once both
+/// sessions have seen the beforeunload dialog it opens.
+async fn open_beforeunload_dialog_from_first_session(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    page: &TwoSessionGuardPage,
+) -> Vec<serde_json::Value> {
+    send_cdp_command_without_wait(
+        socket,
+        8,
+        "Page.navigate",
+        Some(&page.session_id),
+        json!({ "url": BEFOREUNLOAD_SECOND_URL }),
+    )
+    .await;
+    let (mut first_saw_dialog, mut second_saw_dialog) = (false, false);
+    recv_until_match(socket, |message| {
+        first_saw_dialog |=
+            is_session_event(message, &page.session_id, "Page.javascriptDialogOpening");
+        second_saw_dialog |= is_session_event(
+            message,
+            &page.second_session_id,
+            "Page.javascriptDialogOpening",
+        );
+        first_saw_dialog && second_saw_dialog
+    })
+    .await
+}
+
+// 2026-11-18: a second Page-enabled session never heard of the dialog (#2063), because Page.javascriptDialogOpening and javascriptDialogClosed went only to the session the dialog was installed in or answered from.
+#[tokio::test]
+async fn websocket_cdp_beforeunload_dialog_opening_and_closing_reach_a_second_page_session() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let page = two_session_guard_page(&mut socket).await;
+
+    let mut observed = open_beforeunload_dialog_from_first_session(&mut socket, &page).await;
+    let opening = observed
+        .iter()
+        .find(|message| {
+            is_session_event(
+                message,
+                &page.second_session_id,
+                "Page.javascriptDialogOpening",
+            )
+        })
+        .expect("Page.javascriptDialogOpening on the second session");
+    assert_eq!(
+        opening["params"]["type"],
+        json!("beforeunload"),
+        "{observed:#?}"
+    );
+    assert!(
+        !observed.iter().any(|message| message["id"] == json!(8_u64)),
+        "Page.navigate must wait for the beforeunload dialog: {observed:#?}"
+    );
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            9,
+            "Page.handleJavaScriptDialog",
+            Some(&page.session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    if !observed.iter().any(|message| {
+        is_session_event(
+            message,
+            &page.second_session_id,
+            "Page.javascriptDialogClosed",
+        )
+    }) {
+        observed.extend(
+            recv_until_match(&mut socket, |message| {
+                is_session_event(
+                    message,
+                    &page.second_session_id,
+                    "Page.javascriptDialogClosed",
+                )
+            })
+            .await,
+        );
+    }
+    let closed = observed
+        .iter()
+        .find(|message| {
+            is_session_event(
+                message,
+                &page.second_session_id,
+                "Page.javascriptDialogClosed",
+            )
+        })
+        .expect("Page.javascriptDialogClosed on the second session");
+    assert_eq!(closed["params"]["result"], json!(false), "{observed:#?}");
+    if !observed.iter().any(|message| message["id"] == json!(8_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(8_u64)).await);
+    }
+    let navigate = observed
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("Page.navigate response");
+    assert_eq!(
+        navigate["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "{observed:#?}"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
+// 2026-11-18: a second Page-enabled session got "No dialog is showing" from Page.handleJavaScriptDialog, because only the session the dialog was installed in looked for it; Chrome lets any of them answer.
+#[tokio::test]
+async fn websocket_cdp_second_page_session_can_dismiss_the_beforeunload_dialog() {
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let page = two_session_guard_page(&mut socket).await;
+
+    let mut observed = open_beforeunload_dialog_from_first_session(&mut socket, &page).await;
+    let answered = send_cdp_command(
+        &mut socket,
+        9,
+        "Page.handleJavaScriptDialog",
+        Some(&page.second_session_id),
+        json!({ "accept": false }),
+    )
+    .await;
+    let answer = answered
+        .iter()
+        .find(|message| message["id"] == json!(9_u64))
+        .expect("Page.handleJavaScriptDialog response");
+    assert_eq!(
+        answer["result"],
+        json!({}),
+        "the second session must be able to answer the dialog: {answered:#?}"
+    );
+    observed.extend(answered);
+    if !observed
+        .iter()
+        .any(|message| is_session_event(message, &page.session_id, "Page.javascriptDialogClosed"))
+    {
+        observed.extend(
+            recv_until_match(&mut socket, |message| {
+                is_session_event(message, &page.session_id, "Page.javascriptDialogClosed")
+            })
+            .await,
+        );
+    }
+    if !observed.iter().any(|message| message["id"] == json!(8_u64)) {
+        observed
+            .extend(recv_until_match(&mut socket, |message| message["id"] == json!(8_u64)).await);
+    }
+    let navigate = observed
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("Page.navigate response");
+    assert_eq!(
+        navigate["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "{observed:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &page.session_id, 10, "document.title").await,
+        "guard",
+        "dismissing the beforeunload dialog keeps the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 /// Serves `/guard`, which cancels beforeunload the way Playwright's fixtures do
 /// and logs each run, with a link to `/second`; `/first` and `/second` are
 /// plain pages to leave it for. `/legacy` asks the legacy ways and logs each

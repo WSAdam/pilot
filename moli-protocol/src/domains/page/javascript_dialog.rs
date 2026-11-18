@@ -73,9 +73,10 @@ pub(super) fn complete_devtools_handle_javascript_dialog_command(
         Err(error) => return CommandOutputPlan::from_devtools_error(error),
     };
     match finish_devtools_handle_javascript_dialog_command(conn, command, &owner) {
-        Ok(closed_event) => {
+        Ok(closed_events) => {
             let mut plan = CommandOutputPlan::default();
-            plan.push_background_event(closed_event);
+            // pilot: one Page.javascriptDialogClosed per Page-enabled session, as in Chrome.
+            plan.extend_background_events(closed_events);
             plan.push_success();
             plan
         }
@@ -152,9 +153,15 @@ pub(super) fn finish_devtools_handle_javascript_dialog_command(
     conn: &mut CdpConnection,
     command: DevToolsHandleJavaScriptDialogCommand,
     owner: &CommandOwnerScope,
-) -> Result<BackgroundProtocolEvent, DevToolsError> {
+) -> Result<Vec<BackgroundProtocolEvent>, DevToolsError> {
     let session_id = command.context.session_id.as_ref().map(|id| id.as_str());
     let command_prompt_text = command.prompt_text;
+    // pilot: Chrome lets any session with the Page domain enabled answer the
+    // dialog, including one the dialog was not installed for.
+    let dialog_owner = conn
+        .javascript_dialog_holder_for_owner(owner)
+        .unwrap_or_else(|| owner.clone());
+    let owner = &dialog_owner;
     let current_page_owner = conn
         .pending_target_page_residence_identity_for_owner(owner)
         .or_else(|| conn.target_page_residence_identity_for_owner(owner));
@@ -191,10 +198,37 @@ pub(super) fn finish_devtools_handle_javascript_dialog_command(
         accepted: command.accept,
         user_text: user_input,
     };
-    Ok(BackgroundProtocolEvent::page_javascript_dialog_closed(
+    // pilot: like Chrome, every other session with the Page domain enabled
+    // learns that the dialog closed, not only the session that answered it.
+    let mut closed_events = vec![BackgroundProtocolEvent::page_javascript_dialog_closed(
         session_id,
-        closed_event,
-    ))
+        closed_event.clone(),
+    )];
+    closed_events.extend(
+        page_enabled_peer_session_ids(conn, owner, session_id)
+            .into_iter()
+            .map(|peer_session_id| {
+                BackgroundProtocolEvent::page_javascript_dialog_closed_for_peer_session(
+                    peer_session_id.as_deref(),
+                    closed_event.clone(),
+                )
+            }),
+    );
+    Ok(closed_events)
+}
+
+/// pilot: the sessions attached to `owner`'s Page target that have the Page
+/// domain enabled, other than `except`. Chrome tells each of them when a
+/// JavaScript dialog of the page opens or closes.
+fn page_enabled_peer_session_ids(
+    conn: &CdpConnection,
+    owner: &CommandOwnerScope,
+    except: Option<&str>,
+) -> Vec<Option<String>> {
+    conn.subscribed_page_event_session_ids_for_owner(owner)
+        .into_iter()
+        .filter(|session_id| session_id.as_deref() != except)
+        .collect()
 }
 
 pub(in crate::domains) fn emit_javascript_dialog_activity_background_events(
@@ -240,7 +274,8 @@ pub(super) fn execute_devtools_handle_javascript_dialog_command(
     };
     let result = finish_devtools_handle_javascript_dialog_command(conn, command, &owner);
     match result {
-        Ok(event) => (Ok(AutomationResult::Empty), vec![event]),
+        // pilot: one Page.javascriptDialogClosed per Page-enabled session, as in Chrome.
+        Ok(events) => (Ok(AutomationResult::Empty), events),
         Err(error) => (Err(error), Vec::new()),
     }
 }
@@ -374,21 +409,36 @@ fn emit_to_attachment(
         let _ = dialog.finish(false, String::new());
         return;
     }
+    let opening = PageJavaScriptDialogOpeningEvent {
+        frame_id: Some(source_frame_id.into()),
+        url: source_url,
+        message,
+        dialog_type,
+        // Moli has no native browser UI capable of presenting or resolving
+        // JavaScript dialogs. CDP clients can still resolve this dialog via
+        // Page.handleJavaScriptDialog; `false` also lets the Chromium
+        // DevTools frontend dismiss it instead of waiting for nonexistent UI.
+        has_browser_handler: false,
+        default_prompt,
+    };
+    // pilot: Chrome announces a dialog to every session attached to the page
+    // that has the Page domain enabled, not only the one it is installed for
+    // (#2063). Those sessions can answer it too.
+    let peer_session_ids = page_enabled_peer_session_ids(
+        conn,
+        &CommandOwnerScope::for_page_attachment(&destination),
+        event_session_id.as_deref(),
+    );
     out.push(BackgroundProtocolEvent::page_javascript_dialog_opening(
         event_session_id.as_deref(),
-        PageJavaScriptDialogOpeningEvent {
-            frame_id: Some(source_frame_id.into()),
-            url: source_url,
-            message,
-            dialog_type,
-            // Moli has no native browser UI capable of presenting or resolving
-            // JavaScript dialogs. CDP clients can still resolve this dialog via
-            // Page.handleJavaScriptDialog; `false` also lets the Chromium
-            // DevTools frontend dismiss it instead of waiting for nonexistent UI.
-            has_browser_handler: false,
-            default_prompt,
-        },
+        opening.clone(),
     ));
+    out.extend(peer_session_ids.into_iter().map(|peer_session_id| {
+        BackgroundProtocolEvent::page_javascript_dialog_opening_for_peer_session(
+            peer_session_id.as_deref(),
+            opening.clone(),
+        )
+    }));
 }
 
 pub(super) fn settle_pending_popup_dialogs(
