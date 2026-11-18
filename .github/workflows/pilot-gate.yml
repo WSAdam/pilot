@@ -86,34 +86,28 @@ jobs:
       - name: Install gdb
         run: sudo apt-get install --yes --no-install-recommends gdb
 
-      - name: Build the tests
+      - name: Build the tests the workspace way
         run: |
           set -euo pipefail
           cargo nextest run --workspace --no-run
-          cargo test -p moli-renderer-v8 --lib --no-run 2>&1 | tee build.log
-          bin=$(grep -o 'target/debug/deps/moli_renderer_v8-[a-f0-9]*' build.log | head -1)
+          bin=$(find target/debug/deps -maxdepth 1 -type f -perm -u+x -name 'moli_renderer_v8-*' | head -1)
+          ls -la target/debug/deps/moli_renderer_v8-* | grep -v '\.d$' || true
           echo "TEST_BIN=$bin" >> "$GITHUB_ENV"
 
-      - name: nextest, as the gate runs it, with core dumps
+      - name: The test alone, workspace build, in gdb
         run: |
           set +e
-          sudo mkdir -p /tmp/cores && sudo chmod 1777 /tmp/cores
-          sudo sysctl -w kernel.core_pattern=/tmp/cores/core.%e.%p
-          ulimit -c unlimited
-          /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
-          echo "nextest exit $?"
-          ls -la /tmp/cores
+          name=runtime::page_vm::tests::worker::worker_messages_and_service_workers::child_message_handler_external_dedicated_worker_binds_child_client_event_owner
+          echo "🔍 binary $TEST_BIN"
+          gdb -q -batch -nx -ex 'set pagination off' -ex 'handle SIGPIPE nostop noprint' -ex 'handle SIGUSR1 nostop noprint' \
+            -ex run -ex 'echo \n=== innermost 150 ===\n' -ex 'bt 150' -ex 'echo \n=== outermost 40 ===\n' -ex 'bt -40' \
+            --args "$TEST_BIN" --exact "$name" --test-threads 1 --nocapture 2>&1 | cut -c1-400 | tail -260
           exit 0
 
-      - name: Backtraces from the cores
-        if: always()
+      - name: Feature differences
         run: |
           set +e
-          for core in /tmp/cores/core.*; do
-            [ -e "$core" ] || { echo "no cores"; break; }
-            echo "=== $core ==="
-            gdb -q -batch -nx -ex 'set pagination off' -ex 'info threads' \
-              -ex 'echo \n=== innermost 120 ===\n' -ex 'bt 120' \
-              -ex 'echo \n=== outermost 40 ===\n' -ex 'bt -40' \
-              "$TEST_BIN" "$core" 2>&1 | cut -c1-400
-          done
+          cargo tree -p moli-renderer-v8 -e features --workspace -i moli-renderer-v8 2>/dev/null | head -60
+          echo "--- alone ---"
+          cargo tree -p moli-renderer-v8 -e features -i moli-renderer-v8 2>/dev/null | head -60
+          exit 0
