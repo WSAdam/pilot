@@ -1190,4 +1190,96 @@ mod tests {
         );
         assert_eq!(events[0]["sessionId"], json!("SID-1"));
     }
+
+    // 2026-11-18 (pilot, Build 10): an object a Runtime event handed its session as a Page observation was not registered for that session, so once another session on the target had the same wire id from a command result, Runtime.callFunctionOn on the event's object was refused with "Cannot find object with given id" (conformance build10-errors, gate run 44401266844).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn runtime_event_object_stays_usable_when_another_session_holds_the_same_id() {
+        let mut ctx = TestContext::new();
+        load_document(&mut ctx, "<!doctype html><main>two sessions</main>").await;
+        ctx.with_fixture(|conn| {
+            assert!({
+                conn.browser_context
+                    .as_mut()
+                    .expect("browser context")
+                    .assign_attached_session_to_target("TID-1", "SID-attached".to_owned())
+            })
+        });
+        ctx.with_fixture(|conn| conn.commit_declared_session_fixtures_for_test());
+        // V8 ids are per Inspector session: the primary session's UtilityScript
+        // handle and the attached session's event objects share wire ids.
+        ctx.with_fixture(|conn| {
+            conn.register_runtime_remote_object_ids_from_value_for_session_owner(
+                Some("SID-1"),
+                &json!({
+                    "utility": { "objectId": "4.3.2" },
+                    "result": { "objectId": "4.3.3" }
+                }),
+            )
+        });
+        let outputs = ctx.with_fixture(|conn| {
+            renderer_inspector_outputs(
+                conn,
+                Some("SID-1"),
+                Some("SID-attached"),
+                vec![
+                    json!({
+                        "method": "Runtime.exceptionThrown",
+                        "params": {
+                            "timestamp": 1.0,
+                            "exceptionDetails": {
+                                "exceptionId": 2,
+                                "text": "Uncaught",
+                                "lineNumber": 0,
+                                "columnNumber": 12,
+                                "executionContextId": 3,
+                                "exception": {
+                                    "type": "object",
+                                    "subtype": "error",
+                                    "className": "Error",
+                                    "description": "Error: attribute handler",
+                                    "objectId": "4.3.2"
+                                }
+                            }
+                        }
+                    }),
+                    json!({
+                        "method": "Runtime.consoleAPICalled",
+                        "params": {
+                            "type": "log",
+                            "args": [{
+                                "type": "object",
+                                "className": "Object",
+                                "description": "Object",
+                                "objectId": "4.3.3"
+                            }],
+                            "executionContextId": 3,
+                            "timestamp": 2.0
+                        }
+                    }),
+                ],
+            )
+        });
+        let events = drain_runtime_inspector_outputs(&mut ctx, outputs).await;
+        assert_eq!(events.len(), 2, "both events reach the attached session");
+
+        ctx.with_fixture(|conn| {
+            for object_id in ["4.3.2", "4.3.3"] {
+                assert!(
+                    conn.validate_runtime_remote_object_ids_for_session_owner(
+                        Some("SID-attached"),
+                        &[object_id.to_owned()],
+                    )
+                    .is_ok(),
+                    "{object_id}, handed to SID-attached by an event, must reach that session's own V8 objects"
+                );
+            }
+            assert!(
+                conn.validate_runtime_remote_object_ids_for_session_owner(
+                    Some("SID-attached"),
+                    &["4.3.2".to_owned(), "4.3.3".to_owned()],
+                )
+                .is_ok()
+            );
+        });
+    }
 }
