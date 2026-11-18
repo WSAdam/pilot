@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::document_runtime::DomHandle;
 use crate::dom::native::{DomHost, Node, NodeData, NodeType};
+use crate::inspector_session::InspectorCommandHead;
 use crate::runtime::page_generated_dom::{
     user_agent_shadow_node_snapshot, user_agent_shadow_root_snapshot,
 };
@@ -33,6 +34,7 @@ use moli_page_types::{
     DocumentNodeObjectSnapshot, DocumentNodeSnapshot, MAX_DOM_OUTPUT_TREE_DEPTH,
     RendererDomDebuggerDomBreakpointType, RendererDomDebuggerEventListenerBreakpoint,
     renderer_inspector_protocol_configuration_command_from_message,
+    renderer_inspector_protocol_configuration_command_from_method,
 };
 use moli_selector::QueryEngine;
 
@@ -745,9 +747,11 @@ impl PageVm {
         raw_json: &str,
         deferred_response: RendererRuntimeInspectorResponseSender,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
+        let head = InspectorCommandHead::read(raw_json);
         self.dispatch_runtime_protocol_message_with_command_output(
             inspector_session_id,
             raw_json,
+            &head,
             deferred_response,
         )
     }
@@ -782,19 +786,35 @@ impl PageVm {
         raw_json: &str,
         deferred_response: RendererRuntimeInspectorResponseSender,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
-        let prepared_json =
-            self.prepare_runtime_protocol_message_with_context_resolution(action, raw_json)?;
-        self.dispatch_runtime_protocol_message_with_command_output(
-            inspector_session_id,
-            &prepared_json,
-            deferred_response,
-        )
+        // pilot: the command is read once here; its head steers the context
+        // resolution and goes down to V8's dispatch with it. Only a command
+        // whose execution context must change is parsed whole, and read again.
+        let head = InspectorCommandHead::read(raw_json);
+        match self.resolve_runtime_protocol_message_context(action, raw_json, &head)? {
+            Some(resolved_json) => {
+                let resolved_head = InspectorCommandHead::read(&resolved_json);
+                self.dispatch_runtime_protocol_message_with_command_output(
+                    inspector_session_id,
+                    &resolved_json,
+                    &resolved_head,
+                    deferred_response,
+                )
+            }
+            None => self.dispatch_runtime_protocol_message_with_command_output(
+                inspector_session_id,
+                raw_json,
+                &head,
+                deferred_response,
+            ),
+        }
     }
 
+    /// `head` is `raw_json`'s.
     fn dispatch_runtime_protocol_message_with_command_output(
         &mut self,
         inspector_session_id: Option<&str>,
         raw_json: &str,
+        head: &InspectorCommandHead,
         mut deferred_response: RendererRuntimeInspectorResponseSender,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
         ensure!(
@@ -813,12 +833,14 @@ impl PageVm {
         if let Some(owner_wake) = self.runtime_hooks.owner_wake() {
             deferred_response = deferred_response.defer_publication_to_page_owner(owner_wake);
         }
-        let protocol_configuration_command = serde_json::from_str::<Value>(raw_json)
-            .ok()
-            .and_then(|message| {
-                renderer_inspector_protocol_configuration_command_from_message(&message)
-            })
-            .map(|(_, command)| command);
+        // The configuration commands (Runtime/Console enable and disable) are
+        // told apart by `id` and `method` alone; their `params` are not read.
+        let protocol_configuration_command = head.id().and_then(Value::as_u64).and_then(|_| {
+            renderer_inspector_protocol_configuration_command_from_method(
+                head.method()?,
+                &Value::Null,
+            )
+        });
         let scope_id = PageVmRuntimeCommandOutputScopeId(self.next_runtime_command_output_scope_id);
         self.next_runtime_command_output_scope_id = self
             .next_runtime_command_output_scope_id
@@ -841,6 +863,7 @@ impl PageVm {
             .dispatch_inspector_protocol_message_for_session_with_deferred_response_and_command_output(
                 inspector_session_id,
                 raw_json,
+                head,
                 deferred_response,
                 recorder.clone(),
             );
@@ -1106,14 +1129,54 @@ impl PageVm {
         action: &str,
         raw_json: &str,
     ) -> Result<String> {
+        let head = InspectorCommandHead::read(raw_json);
+        Ok(self
+            .resolve_runtime_protocol_message_context(action, raw_json, &head)?
+            .unwrap_or_else(|| raw_json.to_owned()))
+    }
+
+    /// The command with its execution context resolved for V8, or `None`
+    /// when V8 takes `raw_json` as it is. `head` is `raw_json`'s.
+    ///
+    /// pilot: when the head shows the context needs no change (a
+    /// Runtime.evaluate in the main world, or in an isolated world V8 already
+    /// knows by that id), the command is neither parsed into a `Value` nor
+    /// serialized again. Every other command takes the full rewrite as before.
+    fn resolve_runtime_protocol_message_context(
+        &mut self,
+        action: &str,
+        raw_json: &str,
+        head: &InspectorCommandHead,
+    ) -> Result<Option<String>> {
         let context_param_name = match action {
             "evaluate" => Some("contextId"),
             "callFunctionOn" | "addBinding" => Some("executionContextId"),
             _ => None,
         };
         let Some(context_param_name) = context_param_name else {
-            return Ok(raw_json.to_owned());
+            return Ok(None);
         };
+
+        if head.has_object_params() {
+            let context_param = match context_param_name {
+                "contextId" => head.context_id(),
+                _ => head.execution_context_id(),
+            };
+            let context_id = context_param.and_then(Value::as_i64);
+            let resolved_context_id = match context_id {
+                Some(context_id) => self.isolated_runtime_context_inspector_id(context_id)?,
+                None if action == "callFunctionOn"
+                    && head.object_id().is_none()
+                    && head.unique_context_id().is_none() =>
+                {
+                    self.default_execution_context_id()
+                }
+                None => None,
+            };
+            if resolved_context_id.is_none_or(|resolved| Some(resolved) == context_id) {
+                return Ok(None);
+            }
+        }
 
         let mut message: Value = serde_json::from_str(raw_json)?;
         let params = message
@@ -1136,7 +1199,7 @@ impl PageVm {
             params.insert(context_param_name.to_owned(), json!(context_id));
         }
 
-        Ok(serde_json::to_string(&message)?)
+        Ok(Some(serde_json::to_string(&message)?))
     }
 
     fn rewrite_isolated_runtime_context_param(
@@ -1145,17 +1208,23 @@ impl PageVm {
         context_param_name: &str,
         context_id: i64,
     ) -> Result<()> {
-        if !self.has_isolated_execution_context_id(context_id) {
-            return Ok(());
-        }
-
-        self.ensure_isolated_worlds_attached_to_inspector()?;
         if let Some(inspector_context_id) =
-            self.inspector_execution_context_id_for_isolated_context(context_id)
+            self.isolated_runtime_context_inspector_id(context_id)?
         {
             params.insert(context_param_name.to_owned(), json!(inspector_context_id));
         }
         Ok(())
+    }
+
+    /// V8 Inspector's id for the isolated world with execution context id
+    /// `context_id`, once pending isolated worlds are attached to the
+    /// Inspector; `None` when `context_id` is not an isolated world's.
+    fn isolated_runtime_context_inspector_id(&mut self, context_id: i64) -> Result<Option<i64>> {
+        if !self.has_isolated_execution_context_id(context_id) {
+            return Ok(None);
+        }
+        self.ensure_isolated_worlds_attached_to_inspector()?;
+        Ok(self.inspector_execution_context_id_for_isolated_context(context_id))
     }
 
     pub(crate) fn default_execution_context_id(&self) -> Option<i64> {

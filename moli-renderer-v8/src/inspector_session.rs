@@ -21,6 +21,11 @@ enum InspectorSessionError {
 const STACK_CAPTURE_CALL_ID: i32 = -1;
 const DEFAULT_RUNTIME_STACK_CAPTURE_DEPTH: i32 = 10;
 
+mod command_head;
+pub(crate) use self::command_head::InspectorCommandHead;
+#[cfg(test)]
+pub(crate) use self::command_head::inspector_command_head_reads_for_test;
+
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -38,9 +43,18 @@ pub(crate) fn dispatch_with_runtime_defaults(
     raw_json: &str,
     output: &impl InspectorSessionOutput,
 ) -> Result<()> {
-    let enabling_runtime = serde_json::from_str::<Value>(raw_json).is_ok_and(|message| {
-        message.get("method").and_then(Value::as_str) == Some("Runtime.enable")
-    });
+    let enabling_runtime = InspectorCommandHead::read(raw_json).method() == Some("Runtime.enable");
+    dispatch_with_runtime_defaults_when_enabling(session, raw_json, enabling_runtime, output)
+}
+
+/// pilot: [`dispatch_with_runtime_defaults`] for a caller that has already
+/// read the command's head, so the command is not read again.
+pub(crate) fn dispatch_with_runtime_defaults_when_enabling(
+    session: &v8::inspector::V8InspectorSession,
+    raw_json: &str,
+    enabling_runtime: bool,
+    output: &impl InspectorSessionOutput,
+) -> Result<()> {
     let runtime_was_disabled = enabling_runtime && !runtime_enabled(session)?;
     session.dispatch_protocol_message(v8::inspector::StringView::from(raw_json.as_bytes()));
 

@@ -18,7 +18,10 @@ use crate::{
         FrameRealmId, FrameScriptJob, FrameScriptJobKind,
     },
     inspector_microtasks::with_scoped_inspector_microtasks,
-    inspector_session::dispatch_with_runtime_defaults,
+    inspector_session::{
+        InspectorCommandHead, dispatch_with_runtime_defaults,
+        dispatch_with_runtime_defaults_when_enabling,
+    },
     network::{ResourceRequestClient, context::DocumentResourceLoader},
     page_task_queue::{
         PageRuntimeWakeSender, PageTask, PageTaskSender, PostParseLifecycleWork,
@@ -308,14 +311,12 @@ fn moli_dom_memory_counters(document: &NativeDom) -> RendererMoliDomMemoryDiagno
     }
 }
 
-fn runtime_protocol_message_user_gesture(raw_json: &str) -> bool {
-    let Ok(message) = serde_json::from_str::<Value>(raw_json) else {
-        return false;
-    };
-    match message.get("method").and_then(Value::as_str) {
-        Some("Runtime.evaluate") | Some("Runtime.callFunctionOn") => message
-            .get("params")
-            .and_then(|params| params.get("userGesture"))
+// pilot: these read the command's head, read once per dispatch, instead of
+// parsing the whole command into a `Value` each.
+fn runtime_protocol_message_user_gesture(head: &InspectorCommandHead) -> bool {
+    match head.method() {
+        Some("Runtime.evaluate") | Some("Runtime.callFunctionOn") => head
+            .user_gesture()
             .and_then(Value::as_bool)
             .unwrap_or(false),
         _ => false,
@@ -329,21 +330,21 @@ enum InspectorWindowDispatchTarget {
 }
 
 fn runtime_protocol_message_window_dispatch_target(
-    raw_json: &str,
+    head: &InspectorCommandHead,
 ) -> Option<InspectorWindowDispatchTarget> {
-    let message = serde_json::from_str::<Value>(raw_json).ok()?;
-    let params = message.get("params")?;
-    match message.get("method").and_then(Value::as_str) {
+    if !head.has_params() {
+        return None;
+    }
+    match head.method() {
         Some("Runtime.evaluate") | Some("Runtime.compileScript") => Some(
-            params
-                .get("contextId")
-                .or_else(|| params.get("executionContextId"))
+            head.context_id()
+                .or_else(|| head.execution_context_id())
                 .and_then(Value::as_i64)
                 .map(InspectorWindowDispatchTarget::ExecutionContext)
                 .unwrap_or(InspectorWindowDispatchTarget::DefaultTop),
         ),
-        Some("Runtime.callFunctionOn") | Some("Runtime.runScript") => params
-            .get("executionContextId")
+        Some("Runtime.callFunctionOn") | Some("Runtime.runScript") => head
+            .execution_context_id()
             .and_then(Value::as_i64)
             .map(InspectorWindowDispatchTarget::ExecutionContext),
         _ => None,
@@ -378,13 +379,12 @@ fn restore_inspector_window_dispatch_scope(
     crate::native_bridge::restore_active_child_window_scope(owner_scope, previous);
 }
 
-fn runtime_protocol_message_runs_embedder_microtask_checkpoint(raw_json: &str) -> bool {
-    let Ok(message) = serde_json::from_str::<Value>(raw_json) else {
-        return true;
-    };
-    !message
-        .get("method")
-        .and_then(Value::as_str)
+fn runtime_protocol_message_runs_embedder_microtask_checkpoint(
+    head: &InspectorCommandHead,
+) -> bool {
+    // A command that is not JSON has no method, so it runs the checkpoint.
+    !head
+        .method()
         .is_some_and(|method| method.starts_with("Debugger."))
 }
 
@@ -436,14 +436,10 @@ pub(super) enum RuntimeEvaluateOutcome {
     Pending(PendingRuntimeEvaluateCall),
 }
 
-fn runtime_protocol_message_file_prompt_handler(raw_json: &str) -> Option<String> {
-    let Ok(message) = serde_json::from_str::<Value>(raw_json) else {
-        return None;
-    };
-    match message.get("method").and_then(Value::as_str) {
-        Some("Runtime.evaluate") | Some("Runtime.callFunctionOn") => message
-            .get("params")
-            .and_then(|params| params.get(WEBDRIVER_BIDI_FILE_PROMPT_HANDLER_PARAM))
+fn runtime_protocol_message_file_prompt_handler(head: &InspectorCommandHead) -> Option<String> {
+    match head.method() {
+        Some("Runtime.evaluate") | Some("Runtime.callFunctionOn") => head
+            .webdriver_bidi_file_prompt_handler()
             .and_then(Value::as_str)
             .filter(|handler| matches!(*handler, "accept" | "dismiss"))
             .map(str::to_owned),
@@ -1322,6 +1318,7 @@ impl ScriptVm {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -1342,6 +1339,7 @@ impl ScriptVm {
         self.dispatch_inspector_protocol_message_for_session_with_optional_deferred_response(
             PageInspectorSessionTarget::Frontend(inspector_session_id),
             raw_json,
+            None,
             None,
             None,
             Some(internal_call_id),
@@ -1449,16 +1447,19 @@ impl ScriptVm {
         self._context_host.borrow().renderer_dom_agent_state()
     }
 
+    /// `head` is `raw_json`'s, already read by the Page owner (pilot).
     pub(super) fn dispatch_inspector_protocol_message_for_session_with_deferred_response_and_command_output(
         &mut self,
         inspector_session_id: Option<&str>,
         raw_json: &str,
+        head: &InspectorCommandHead,
         deferred_response: RendererRuntimeInspectorResponseSender,
         command_output: crate::runtime::RendererRuntimeCommandOutputRecorder,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
         self.dispatch_inspector_protocol_message_for_session_with_optional_deferred_response(
             PageInspectorSessionTarget::Frontend(inspector_session_id),
             raw_json,
+            Some(head),
             Some(deferred_response),
             Some(command_output),
             None,
@@ -1473,6 +1474,7 @@ impl ScriptVm {
         self.dispatch_inspector_protocol_message_for_session_with_optional_deferred_response(
             PageInspectorSessionTarget::InternalRuntimeEvaluate,
             raw_json,
+            None,
             Some(deferred_response),
             None,
             None,
@@ -1725,16 +1727,28 @@ impl ScriptVm {
             .clear_dom_debugger_dom_breakpoints_for_session(inspector_session_id);
     }
 
+    /// `head` is `raw_json`'s when the caller has read it already. pilot: the
+    /// command is read once here at most, and the facts it gives go down to
+    /// V8's dispatch, so a 346 KB Runtime.evaluate is not parsed again for each.
     fn dispatch_inspector_protocol_message_for_session_with_optional_deferred_response(
         &mut self,
         target: PageInspectorSessionTarget<'_>,
         raw_json: &str,
+        head: Option<&InspectorCommandHead>,
         deferred_response: Option<RendererRuntimeInspectorResponseSender>,
         command_output: Option<crate::runtime::RendererRuntimeCommandOutputRecorder>,
         internal_dispatch_call_id: Option<i32>,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
-        let user_gesture = runtime_protocol_message_user_gesture(raw_json);
-        let file_prompt_handler = runtime_protocol_message_file_prompt_handler(raw_json);
+        let read_head;
+        let head = match head {
+            Some(head) => head,
+            None => {
+                read_head = InspectorCommandHead::read(raw_json);
+                &read_head
+            }
+        };
+        let user_gesture = runtime_protocol_message_user_gesture(head);
+        let file_prompt_handler = runtime_protocol_message_file_prompt_handler(head);
         if user_gesture {
             self._context_host
                 .borrow_mut()
@@ -1759,6 +1773,7 @@ impl ScriptVm {
         let result = self.dispatch_inspector_protocol_message_with_current_activation(
             target,
             raw_json,
+            head,
             deferred_response,
             command_output,
             internal_dispatch_call_id,
@@ -1796,15 +1811,18 @@ impl ScriptVm {
         &mut self,
         target: PageInspectorSessionTarget<'_>,
         raw_json: &str,
+        head: &InspectorCommandHead,
         deferred_response: Option<RendererRuntimeInspectorResponseSender>,
         command_output: Option<crate::runtime::RendererRuntimeCommandOutputRecorder>,
         internal_dispatch_call_id: Option<i32>,
     ) -> Result<Vec<RendererRuntimeInspectorMessage>> {
         let timing_started = moli_trace::cdp_nav_timing_enabled().then(Instant::now);
         let context_ptr: *const v8::Global<v8::Context> = &self.page_default_runtime.context;
-        let inspector_window_dispatch_scope =
-            runtime_protocol_message_window_dispatch_target(raw_json)
-                .and_then(|target| self.inspector_window_dispatch_scope_for_target(target));
+        let inspector_window_dispatch_scope = runtime_protocol_message_window_dispatch_target(head)
+            .and_then(|target| self.inspector_window_dispatch_scope_for_target(target));
+        let enabling_runtime = head.method() == Some("Runtime.enable");
+        let runs_embedder_microtask_checkpoint =
+            runtime_protocol_message_runs_embedder_microtask_checkpoint(head);
         let runtime_binding_replay_context_ptrs = self.runtime_binding_replay_context_ptrs();
         let renderer_document_isolate = self.renderer_document_isolate.clone();
         let page_inspector = &mut self.page_inspector;
@@ -1867,7 +1885,12 @@ impl ScriptVm {
                         let dispatch_response_capture = outbound.capture_dispatch_responses();
                         let dispatch_started = timing_started.map(|_| Instant::now());
                         if let Err(error) = with_scoped_inspector_microtasks(scope, || {
-                            dispatch_with_runtime_defaults(session, raw_json, &outbound)
+                            dispatch_with_runtime_defaults_when_enabling(
+                                session,
+                                raw_json,
+                                enabling_runtime,
+                                &outbound,
+                            )
                         }) {
                             outbound.discard_messages_after(snap);
                             return Err(error);
@@ -1882,7 +1905,7 @@ impl ScriptVm {
                                 elapsed_ms = total_started.elapsed().as_millis(),
                             );
                         }
-                        if runtime_protocol_message_runs_embedder_microtask_checkpoint(raw_json) {
+                        if runs_embedder_microtask_checkpoint {
                             let microtask_started = timing_started.map(|_| Instant::now());
                             Self::perform_microtask_checkpoints(scope, None)?;
                             if let (Some(total_started), Some(started)) =

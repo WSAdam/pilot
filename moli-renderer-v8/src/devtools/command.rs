@@ -2,6 +2,7 @@
 
 mod nested;
 
+use crate::inspector_session::InspectorCommandHead;
 use crate::runtime::{
     RendererInspectorPageCommand, RendererPageCommand, RendererRuntimeInspectorResponseSender,
 };
@@ -30,11 +31,8 @@ pub(crate) enum RendererInspectorPauseCommandEffect {
 }
 
 impl RendererInspectorPauseCommandEffect {
-    fn from_message(message: Option<&Value>) -> Self {
-        match message
-            .and_then(|message| message.get("method"))
-            .and_then(Value::as_str)
-        {
+    fn from_head(head: &InspectorCommandHead) -> Self {
+        match head.method() {
             Some("Debugger.resume") => Self::Resume,
             Some(
                 "Debugger.continueToLocation"
@@ -416,10 +414,12 @@ impl RendererInspectorCommandEnvelope {
             RendererInspectorCommandRoute::MainThread,
             "a Main Inspector protocol payload must use the MainThread route"
         );
-        let message = serde_json::from_str::<Value>(&raw_json).ok();
+        // pilot: the command's head, not the whole command parsed into a
+        // `Value`, which for a 346 KB Runtime.evaluate cost a full parse.
+        let head = InspectorCommandHead::read(&raw_json);
         let main_dispatch_boundary = if main_protocol_can_dispatch_at_inspector_session_boundary(
             owner_context_resolution_action.as_deref(),
-            message.as_ref(),
+            &head,
         ) {
             RendererInspectorMainDispatchBoundary::InspectorSession
         } else {
@@ -438,7 +438,7 @@ impl RendererInspectorCommandEnvelope {
         };
         Self {
             ticket,
-            pause_effect: RendererInspectorPauseCommandEffect::from_message(message.as_ref()),
+            pause_effect: RendererInspectorPauseCommandEffect::from_head(&head),
             main_dispatch_boundary,
             payload: RendererInspectorCommandPayload::MainThread(command),
         }
@@ -455,10 +455,10 @@ impl RendererInspectorCommandEnvelope {
             RendererInspectorCommandRoute::Io,
             "an Inspector IO payload must use the IO route"
         );
-        let message = serde_json::from_str::<Value>(&raw_json).ok();
+        let head = InspectorCommandHead::read(&raw_json);
         Self {
             ticket,
-            pause_effect: RendererInspectorPauseCommandEffect::from_message(message.as_ref()),
+            pause_effect: RendererInspectorPauseCommandEffect::from_head(&head),
             main_dispatch_boundary: RendererInspectorMainDispatchBoundary::InspectorSession,
             payload: RendererInspectorCommandPayload::Io { raw_json, response },
         }
@@ -678,13 +678,12 @@ impl RendererInspectorCommandEnvelope {
 
 fn main_protocol_can_dispatch_at_inspector_session_boundary(
     owner_context_resolution_action: Option<&str>,
-    message: Option<&Value>,
+    head: &InspectorCommandHead,
 ) -> bool {
-    let Some(message) = message else {
+    if !head.is_json() {
         return false;
-    };
-    let method = message.get("method").and_then(Value::as_str);
-    let params = message.get("params").and_then(Value::as_object);
+    }
+    let method = head.method();
 
     // These transitions have renderer-owned restore state and must therefore
     // pass through PageVm even though their final sink is V8InspectorSession.
@@ -695,10 +694,10 @@ fn main_protocol_can_dispatch_at_inspector_session_boundary(
         return false;
     }
 
-    let has_owner_scoped_runtime_semantics = params.is_some_and(|params| {
-        params.get("userGesture").and_then(Value::as_bool) == Some(true)
-            || params.contains_key(crate::script_vm::WEBDRIVER_BIDI_FILE_PROMPT_HANDLER_PARAM)
-    });
+    // The head has `params` fields only when `params` is an object.
+    let has_owner_scoped_runtime_semantics = head.user_gesture().and_then(Value::as_bool)
+        == Some(true)
+        || head.webdriver_bidi_file_prompt_handler().is_some();
     if has_owner_scoped_runtime_semantics {
         return false;
     }
@@ -712,11 +711,11 @@ fn main_protocol_can_dispatch_at_inspector_session_boundary(
         // A target supplied by object, unique context, or numeric Inspector
         // context is complete. Only the target-less compatibility form needs
         // PageVm to insert Moli's default execution context.
-        Some("callFunctionOn") => params.is_some_and(|params| {
-            params.contains_key("objectId")
-                || params.contains_key("uniqueContextId")
-                || params.contains_key("executionContextId")
-        }),
+        Some("callFunctionOn") => {
+            head.object_id().is_some()
+                || head.unique_context_id().is_some()
+                || head.execution_context_id().is_some()
+        }
         Some(_) => false,
         None => true,
     }

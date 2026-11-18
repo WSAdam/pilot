@@ -2872,6 +2872,63 @@ async fn runtime_document_close_response_does_not_wait_for_replacement_lifecycle
     .await;
 }
 
+// 2026-11-18: between the Page owner and V8 a Runtime.evaluate was parsed
+// into a serde_json::Value seven times (context resolution and its
+// re-serialization, protocol configuration, user gesture, file prompt handler,
+// window scope, runtime defaults, microtask checkpoint), costing milliseconds
+// for Playwright's 346 KB injected script. Its head is now read once.
+#[tokio::test]
+async fn runtime_evaluate_with_context_resolution_reads_the_command_once() {
+    run_page_vm_async_test(async move {
+        let page_vm = test_page_vm();
+        let local_executor = page_vm.local_executor.clone();
+
+        local_executor
+            .run(async move {
+                let mut page_vm = page_vm;
+                let _ = page_vm.take_page_creation_artifacts();
+                let call_id = 710_230;
+                let expression = format!(
+                    "{}globalThis.__pilotReadOnce = 'evaluated'; 'done'",
+                    "/* \"padding\" \\ */\n".repeat(20_000)
+                );
+                let command = serde_json::json!({
+                    "id": call_id,
+                    "method": "Runtime.evaluate",
+                    "params": { "expression": expression, "returnByValue": true },
+                })
+                .to_string();
+                let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+                let reads_before = crate::inspector_session::inspector_command_head_reads_for_test();
+                page_vm
+                    .dispatch_frontend_runtime_protocol_message_for_inspector_session_with_context_resolution_and_deferred_response(
+                        None,
+                        "evaluate",
+                        &command,
+                        crate::runtime::RendererRuntimeInspectorResponseSender::new(
+                            call_id,
+                            response_tx,
+                        ),
+                    )?;
+                assert_eq!(
+                    crate::inspector_session::inspector_command_head_reads_for_test()
+                        - reads_before,
+                    1,
+                    "the command is read once on its way to V8"
+                );
+                assert_eq!(
+                    page_vm.vm_mut().eval("String(globalThis.__pilotReadOnce)")?,
+                    "evaluated",
+                    "V8 ran the whole 380 KB command"
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await
+            .expect("a large Runtime.evaluate should dispatch");
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn javascript_location_navigation_drains_style_invalidations() {
     run_page_vm_async_test(async move {
