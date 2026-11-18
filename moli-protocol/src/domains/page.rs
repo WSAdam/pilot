@@ -51,6 +51,10 @@ use crate::domains::command_output::CommandOutputPlan;
 mod app_manifest;
 mod automation;
 pub(crate) use automation::PreparedAutomationPageQuery;
+// pilot: like Chrome, a page runs one browser-started beforeunload at a time;
+// navigations that arrive meanwhile take its answer.
+mod beforeunload_step;
+pub(crate) use beforeunload_step::TargetBeforeUnloadStep;
 mod child_frame_activity;
 mod child_navigation;
 mod navigation_cleanup;

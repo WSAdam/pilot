@@ -51,6 +51,9 @@ use super::{
     },
 };
 
+// pilot: one browser-started beforeunload per page at a time, as in Chrome.
+use super::beforeunload_step::BeforeUnloadStepLeader;
+
 mod automation;
 pub(crate) use automation::{AutomationNavigationResult, prepare_automation_navigation};
 
@@ -132,15 +135,37 @@ pub(super) struct CompletedSameDocumentHistoryTraversalCommand {
 /// A browser-started navigation, reload or traversal waiting for
 /// `beforeunload` in the top-level Document it is about to leave.
 pub(super) struct PendingBeforeUnloadCommand {
-    pending: PendingPageCommand,
+    answer: PendingBeforeUnloadAnswer,
     command: AutomationCommand,
     options: DevToolsNavigationStartOptions,
 }
 
 pub(super) struct CompletedBeforeUnloadCommand {
-    completed: Result<CompletedPageCommand>,
+    answer: CompletedBeforeUnloadAnswer,
     command: AutomationCommand,
     options: DevToolsNavigationStartOptions,
+}
+
+/// pilot: where a browser-started navigation gets its `beforeunload` answer.
+/// Like Chrome, a page runs one at a time: a navigation that arrives while
+/// another one's runs (a second CDP session's, say, while the beforeunload
+/// dialog is open) takes that answer instead of asking the page again.
+enum PendingBeforeUnloadAnswer {
+    /// This navigation runs `beforeunload` in the renderer.
+    Asked {
+        pending: PendingPageCommand,
+        leader: BeforeUnloadStepLeader,
+    },
+    /// Another navigation's `beforeunload` is running for the same page.
+    Waiting(tokio::sync::oneshot::Receiver<bool>),
+}
+
+enum CompletedBeforeUnloadAnswer {
+    Asked {
+        completed: Box<Result<CompletedPageCommand>>,
+        leader: BeforeUnloadStepLeader,
+    },
+    Waiting(Result<bool, tokio::sync::oneshot::error::RecvError>),
 }
 
 impl CompletedNavigateLoadCommand {
@@ -211,10 +236,15 @@ impl CompletedSameDocumentHistoryTraversalCommand {
 
 impl CompletedBeforeUnloadCommand {
     pub(super) fn renderer_output_predecessor(&self) -> Option<moli_core::RendererOutputFence> {
-        self.completed
-            .as_ref()
-            .ok()
-            .and_then(CompletedPageCommand::renderer_output_predecessor)
+        match &self.answer {
+            CompletedBeforeUnloadAnswer::Asked { completed, .. } => match &**completed {
+                Ok(completion) => completion.renderer_output_predecessor(),
+                Err(_) => None,
+            },
+            // pilot: a navigation that took another's answer sent the
+            // renderer nothing.
+            CompletedBeforeUnloadAnswer::Waiting(_) => None,
+        }
     }
 }
 
@@ -273,8 +303,19 @@ impl PendingSameDocumentHistoryTraversalCommand {
 
 impl PendingBeforeUnloadCommand {
     pub(super) async fn wait(self) -> CompletedBeforeUnloadCommand {
+        let answer = match self.answer {
+            PendingBeforeUnloadAnswer::Asked { pending, leader } => {
+                CompletedBeforeUnloadAnswer::Asked {
+                    completed: Box::new(pending.wait().await),
+                    leader,
+                }
+            }
+            PendingBeforeUnloadAnswer::Waiting(answer) => {
+                CompletedBeforeUnloadAnswer::Waiting(answer.await)
+            }
+        };
         CompletedBeforeUnloadCommand {
-            completed: self.pending.wait().await,
+            answer,
             command: self.command,
             options: self.options,
         }
@@ -888,13 +929,13 @@ fn start_devtools_page_command(
     command: AutomationCommand,
     options: DevToolsNavigationStartOptions,
 ) -> PageCommandTaskStep {
-    if let Some(pending) = start_top_level_beforeunload(conn, &command, &options) {
+    if let Some(answer) = start_top_level_beforeunload(conn, &command, &options) {
         return PageCommandTaskStep::Pending(super::PendingPageCommandDispatch {
             command_id,
             owner_scope: options.owner.clone(),
             kind: Box::new(super::PendingPageCommandKind::BeforeUnload(Box::new(
                 PendingBeforeUnloadCommand {
-                    pending,
+                    answer,
                     command,
                     options,
                 },
@@ -909,12 +950,14 @@ fn start_devtools_page_command(
 /// Child-frame, same-document fragment and same-document history navigations
 /// keep that Document and skip it. So does a Document that cannot run script
 /// now: the initial `about:blank`, one already being replaced, a crashed one,
-/// one paused in the debugger, or one blocked on a JavaScript dialog.
+/// one paused in the debugger, or one blocked on a JavaScript dialog. While
+/// another navigation's `beforeunload` runs for the page, this one waits for
+/// its answer.
 fn start_top_level_beforeunload(
     conn: &mut CdpConnection,
     command: &AutomationCommand,
     options: &DevToolsNavigationStartOptions,
-) -> Option<PendingPageCommand> {
+) -> Option<PendingBeforeUnloadAnswer> {
     if !matches!(
         options.result_projection,
         NavigationResultProjection::Cdp(_)
@@ -942,8 +985,19 @@ fn start_top_level_beforeunload(
         ),
         _ => false,
     };
-    if !leaves_document
-        || conn.runtime_session_owner_target_is_initial_about_blank(owner.session_id())
+    if !leaves_document {
+        return None;
+    }
+    // pilot: Chrome asks the page once at a time. A navigation that arrives
+    // while another one's beforeunload runs (from any session, its dialog
+    // open, say) waits for that answer instead of asking again behind it.
+    if let Some(answer) = conn
+        .target_owner_state_for_owner(owner)
+        .and_then(|owner_state| owner_state.beforeunload_step.join())
+    {
+        return Some(PendingBeforeUnloadAnswer::Waiting(answer));
+    }
+    if conn.runtime_session_owner_target_is_initial_about_blank(owner.session_id())
         || conn
             .target_owner_state_for_owner(owner)
             .is_some_and(|owner_state| owner_state.target_crash_state.is_crashed())
@@ -959,17 +1013,25 @@ fn start_top_level_beforeunload(
     if page.runtime_inspector_pause_active() {
         return None;
     }
-    match page.start_top_level_beforeunload() {
-        Ok(pending) => Some(pending),
+    let pending = match page.start_top_level_beforeunload() {
+        Ok(pending) => pending,
         Err(error) => {
             tracing::debug!(
                 session_id = owner.session_id(),
                 error = %error,
                 "navigating without beforeunload: the renderer did not accept it"
             );
-            None
+            return None;
         }
-    }
+    };
+    // pilot: record the step so navigations arriving meanwhile take its
+    // answer; without a target state to record it in, nobody can join.
+    let leader = conn
+        .with_target_owner_state_for_owner_mut(owner, |owner_state| {
+            owner_state.beforeunload_step.begin()
+        })
+        .unwrap_or_default();
+    Some(PendingBeforeUnloadAnswer::Asked { pending, leader })
 }
 
 /// Finishes the `beforeunload` step: the original command runs when the
@@ -981,23 +1043,36 @@ pub(super) fn complete_pending_beforeunload_command(
     completed: CompletedBeforeUnloadCommand,
 ) -> PageCommandTaskStep {
     let CompletedBeforeUnloadCommand {
-        completed,
+        answer,
         command,
         options,
     } = completed;
-    // Read the reply without applying its page state: a Document replaced
-    // while the dialog was open must not take the old Document's state.
-    let proceed = match completed {
-        Ok(completion) => completion.bool_reply_value().unwrap_or_else(|| {
-            tracing::debug!("navigating on: beforeunload returned an unexpected reply");
-            true
-        }),
-        Err(error) => {
-            tracing::debug!(
-                error = %error,
-                "navigating on: beforeunload did not complete"
-            );
-            true
+    let proceed = match answer {
+        CompletedBeforeUnloadAnswer::Asked { completed, leader } => {
+            // Read the reply without applying its page state: a Document replaced
+            // while the dialog was open must not take the old Document's state.
+            let proceed = match *completed {
+                Ok(completion) => completion.bool_reply_value().unwrap_or_else(|| {
+                    tracing::debug!("navigating on: beforeunload returned an unexpected reply");
+                    true
+                }),
+                Err(error) => {
+                    tracing::debug!(
+                        error = %error,
+                        "navigating on: beforeunload did not complete"
+                    );
+                    true
+                }
+            };
+            // pilot: answer the navigations that waited on this beforeunload.
+            leader.settle(proceed)
+        }
+        CompletedBeforeUnloadAnswer::Waiting(Ok(proceed)) => proceed,
+        CompletedBeforeUnloadAnswer::Waiting(Err(_)) => {
+            // pilot: the navigation that asked went away unanswered (its
+            // command was dropped), so this one asks the page itself.
+            tracing::debug!("asking beforeunload again: the step it waited on was dropped");
+            return start_devtools_page_command(conn, command_id, command, options);
         }
     };
     if proceed {

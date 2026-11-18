@@ -1013,6 +1013,129 @@ async fn websocket_cdp_second_page_session_can_dismiss_the_beforeunload_dialog()
     protocol_server.abort();
 }
 
+/// Where the second session navigates while the first session's
+/// beforeunload dialog is open.
+const BEFOREUNLOAD_THIRD_URL: &str = "data:text/html,<title>third</title><main>third</main>";
+
+/// Sends `Page.navigate` (id 30) from the second session while the dialog is
+/// open, and checks that, as in Chrome, it waits behind the dialog.
+async fn navigate_second_session_behind_open_dialog(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    page: &TwoSessionGuardPage,
+    observed: &mut Vec<serde_json::Value>,
+) {
+    send_cdp_command_without_wait(
+        socket,
+        30,
+        "Page.navigate",
+        Some(&page.second_session_id),
+        json!({ "url": BEFOREUNLOAD_THIRD_URL }),
+    )
+    .await;
+    observed.extend(recv_cdp_messages_for(socket, std::time::Duration::from_millis(300)).await);
+    assert!(
+        !observed
+            .iter()
+            .any(|message| message["id"] == json!(30_u64)),
+        "the second Page.navigate must wait behind the open dialog: {observed:#?}"
+    );
+}
+
+/// Receives until both Page.navigate responses, the first session's (id 8)
+/// and the second session's (id 30), are in `observed`.
+async fn recv_both_navigate_responses(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    observed: &mut Vec<serde_json::Value>,
+) {
+    for id in [8_u64, 30_u64] {
+        if !observed.iter().any(|message| message["id"] == json!(id)) {
+            observed.extend(recv_until_match(socket, |message| message["id"] == json!(id)).await);
+        }
+    }
+}
+
+// 2026-11-18: a second session's Page.navigate sent while the beforeunload dialog was open asked the renderer for its own beforeunload behind the dialog, so dismissing the dialog did not abort it; Chrome gives it the dialog's answer.
+#[tokio::test]
+async fn websocket_cdp_second_session_navigation_behind_a_dismissed_beforeunload_dialog_is_aborted()
+{
+    let (cdp_addr, protocol_server) = spawn_test_protocol_server().await;
+    let (mut socket, _) = connect_async(format!(
+        "ws://{cdp_addr}/devtools/browser/{DEFAULT_BROWSER_ID}"
+    ))
+    .await
+    .expect("connect to cdp websocket");
+    let page = two_session_guard_page(&mut socket).await;
+    let mut observed = open_beforeunload_dialog_from_first_session(&mut socket, &page).await;
+    navigate_second_session_behind_open_dialog(&mut socket, &page, &mut observed).await;
+
+    observed.extend(
+        send_cdp_command(
+            &mut socket,
+            9,
+            "Page.handleJavaScriptDialog",
+            Some(&page.session_id),
+            json!({ "accept": false }),
+        )
+        .await,
+    );
+    recv_both_navigate_responses(&mut socket, &mut observed).await;
+    let first = observed
+        .iter()
+        .find(|message| message["id"] == json!(8_u64))
+        .expect("first Page.navigate response");
+    assert_eq!(
+        first["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "{observed:#?}"
+    );
+    let second = observed
+        .iter()
+        .find(|message| message["id"] == json!(30_u64))
+        .expect("second Page.navigate response");
+    assert_eq!(
+        second["sessionId"].as_str(),
+        Some(page.second_session_id.as_str()),
+        "{observed:#?}"
+    );
+    assert_eq!(
+        second["result"]["errorText"],
+        json!("net::ERR_ABORTED"),
+        "the dismissed dialog aborts the second navigation too: {observed:#?}"
+    );
+    assert!(second["result"]["frameId"].is_string(), "{observed:#?}");
+    assert!(second["result"]["loaderId"].is_null(), "{observed:#?}");
+    assert_eq!(
+        second["result"]["isDownload"],
+        json!(false),
+        "{observed:#?}"
+    );
+
+    observed
+        .extend(recv_cdp_messages_for(&mut socket, std::time::Duration::from_millis(300)).await);
+    assert_eq!(
+        observed
+            .iter()
+            .filter(|message| {
+                is_session_event(message, &page.session_id, "Page.javascriptDialogOpening")
+            })
+            .count(),
+        1,
+        "the second navigation must not ask the page again: {observed:#?}"
+    );
+    assert_eq!(
+        cdp_runtime_evaluate_string(&mut socket, &page.session_id, 10, "document.title").await,
+        "guard",
+        "dismissing the beforeunload dialog keeps the page"
+    );
+
+    let _ = socket.close(None).await;
+    protocol_server.abort();
+}
+
 /// Serves `/guard`, which cancels beforeunload the way Playwright's fixtures do
 /// and logs each run, with a link to `/second`; `/first` and `/second` are
 /// plain pages to leave it for. `/legacy` asks the legacy ways and logs each

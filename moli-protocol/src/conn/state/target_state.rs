@@ -542,6 +542,10 @@ pub(crate) struct TargetOwnerState {
     pub(crate) window_surface_geometry: TargetWindowSurfaceGeometry,
     pub(crate) frame_index: crate::frame_index::FrameIndex,
     pub(crate) frame_index_document: Option<moli_core::RendererDocumentLifecycleIdentity>,
+    /// pilot: the browser-started `beforeunload` in progress. Like Chrome, a
+    /// navigation that arrives while it runs waits for its answer instead of
+    /// asking the page again.
+    pub(crate) beforeunload_step: crate::domains::page::TargetBeforeUnloadStep,
 }
 
 impl TargetOwnerState {
