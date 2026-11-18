@@ -202,6 +202,7 @@ mod inserted_script_errors;
 mod inspector;
 mod navigation;
 mod objects;
+mod page_error_objects;
 mod service_worker;
 mod shared_worker;
 

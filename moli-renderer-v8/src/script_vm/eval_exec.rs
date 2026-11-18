@@ -18,7 +18,7 @@ use crate::script_provenance::CompiledStringProvenance;
 use crate::style_engine::StyleInvalidationTurnExitBoundary;
 use crate::util::{
     context_host_ptr_from_global_bridge, create_script_origin_with_base_url_and_nonce,
-    script_base_url_continuation_data, v8_string,
+    create_unnamed_page_script_origin, script_base_url_continuation_data, v8_string,
 };
 use crate::v8_execution_watchdog::{
     SCRIPT_TURN_WATCHDOG_TIMEOUT, V8ExecutionWatchdog, V8ExecutionWatchdogKind,
@@ -207,16 +207,20 @@ fn execute_source_text_on_current_stack_with_completion(
     }
     let source =
         v8_string(&scope, source).ok_or_else(|| anyhow!("failed to allocate v8 source string"))?;
-    let origin = provenance.map(|provenance| {
-        create_script_origin_with_base_url_and_nonce(
+    // pilot: a script without a URL (a document-start script) still gets a
+    // shared cross-origin origin, so DevTools gets the object of an error it
+    // creates (util.rs).
+    let origin = match provenance {
+        Some(provenance) => create_script_origin_with_base_url_and_nonce(
             &mut scope,
             provenance.source_url().as_str(),
             line_offset,
             Some(provenance.module_base_url()),
             script_nonce,
-        )
-    });
-    let script = v8::Script::compile(&scope, source, origin.as_ref()).ok_or_else(|| {
+        ),
+        None => create_unnamed_page_script_origin(&mut scope),
+    };
+    let script = v8::Script::compile(&scope, source, Some(&origin)).ok_or_else(|| {
         let exception = scope.exception();
         let message = scope.message();
         let stack_trace = scope.stack_trace();

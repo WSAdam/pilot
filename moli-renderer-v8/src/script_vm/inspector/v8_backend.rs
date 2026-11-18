@@ -735,11 +735,15 @@ pub(crate) fn report_uncaught_exception_to_devtools(
         .unwrap_or_else(|| scope.get_current_context());
     let stack_trace =
         inspector.create_stack_trace(v8::Exception::get_stack_trace(scope, exception));
-    // V8 still sends exceptions thrown by page-compiled code without the
-    // error object, in any realm (gate run 3; the cause is a TODO.md item),
-    // and Moli then describes the exception from this text. So the text is
-    // what Chrome's remote object would describe: an error's stack, from
-    // which Playwright reads the name, message and frames.
+    // V8 sends the exception object only when the script of the report's
+    // script id, here the top frame of the error's own stack, is shared
+    // cross-origin (V8ConsoleMessage::reportToFrontend). Page scripts are
+    // (util.rs PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN), but a thrown value with
+    // no stack of its own (a string, a plain object) has no script id here,
+    // so V8 sends it as this text alone (a TODO.md item) and Moli describes
+    // the exception from it. So the text is what Chrome's remote object would
+    // describe: an error's stack, from which Playwright reads the name,
+    // message and frames.
     let detailed_message = uncaught_exception_description(scope, exception).unwrap_or_else(|| {
         if message.starts_with("Uncaught") {
             message.to_owned()

@@ -1217,7 +1217,9 @@ fn create_module_script_origin<'s>(
         name.into(),
         0,
         0,
-        false,
+        // pilot: a module script is shared cross-origin, so DevTools gets the
+        // object of an error it creates (util.rs).
+        crate::util::PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN,
         -1,
         None,
         false,

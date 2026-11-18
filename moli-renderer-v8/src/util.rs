@@ -440,13 +440,45 @@ pub(super) fn create_script_origin_with_base_url_and_nonce<'s>(
         name.into(),
         line_offset,
         0,
-        false,
+        PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN,
         -1,
         None,
         false,
         false,
         false,
         host_defined_options,
+    )
+}
+
+/// pilot: every script compiled from page code is shared cross-origin, as
+/// Blink compiles a classic script whose errors are not muted and every module
+/// script. V8 15's Inspector puts the exception object into
+/// `Runtime.exceptionThrown` only when the script that created the error is
+/// shared cross-origin (`V8ConsoleMessage::reportToFrontend`), so without the
+/// flag an error from page code reached DevTools, and Playwright's
+/// `pageerror`, as text alone. Moli does not mute the errors of cross-origin
+/// classic scripts, so no page script is compiled without the flag.
+pub(crate) const PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN: bool = true;
+
+/// pilot: the origin of a page script that has no resource name, such as an
+/// inline script inserted by a DOM call or a document-start script. It is
+/// what compiling without an origin gives, but shared cross-origin.
+pub(crate) fn create_unnamed_page_script_origin<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> v8::ScriptOrigin<'s> {
+    let resource_name: v8::Local<'s, v8::Value> = v8::undefined(scope).into();
+    v8::ScriptOrigin::new(
+        scope,
+        resource_name,
+        0,
+        0,
+        PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN,
+        -1,
+        None,
+        false,
+        false,
+        false,
+        None,
     )
 }
 
@@ -1047,7 +1079,8 @@ mod tests {
     use std::pin::pin;
 
     use super::{
-        SCRIPT_BASE_URL_HOST_DEFINED_OPTIONS_MARKER, object_chain_contains,
+        SCRIPT_BASE_URL_HOST_DEFINED_OPTIONS_MARKER, create_script_origin_with_base_url,
+        create_unnamed_page_script_origin, object_chain_contains,
         script_base_url_from_host_defined_options,
         script_host_defined_options_with_base_url_and_nonce,
         script_host_defined_options_with_fetch_metadata, script_nonce_from_host_defined_options,
@@ -1085,6 +1118,51 @@ mod tests {
             options.set(scope, index, value.into());
         }
         options.into()
+    }
+
+    /// pilot: runs `throw new Error('page error')` compiled with a page script
+    /// origin, with a URL or without one, and says whether V8's message for
+    /// the uncaught error reports its script as shared cross-origin, which is
+    /// what lets V8's Inspector send the error object to DevTools.
+    fn page_script_error_is_shared_cross_origin(
+        scope: &mut v8::PinScope<'_, '_>,
+        with_url: bool,
+    ) -> bool {
+        let try_catch = pin!(v8::TryCatch::new(scope));
+        let mut scope = try_catch.init();
+        let page_url = Url::parse("https://example.test/page.html").unwrap();
+        let origin = if with_url {
+            create_script_origin_with_base_url(&mut scope, page_url.as_str(), 0, Some(&page_url))
+        } else {
+            create_unnamed_page_script_origin(&mut scope)
+        };
+        let source =
+            v8::String::new(&scope, "throw new Error('page error')").expect("page script source");
+        let script =
+            v8::Script::compile(&scope, source, Some(&origin)).expect("the page script compiles");
+        assert!(script.run(&scope).is_none(), "the page script throws");
+        let message = scope.message().expect("the uncaught error has a message");
+        message.is_shared_cross_origin()
+    }
+
+    // 2026-11-18: page scripts were compiled without V8's shared cross-origin flag, and V8 15's Inspector sends Runtime.exceptionThrown without the error object when the script that created the error is not shared cross-origin, so every error from page code reached DevTools as text alone.
+    #[test]
+    fn errors_from_page_scripts_are_shared_cross_origin_so_devtools_gets_the_error_object() {
+        ensure_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = pin!(v8::HandleScope::new(&mut isolate));
+        let scope = &mut scope.init();
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        assert!(
+            page_script_error_is_shared_cross_origin(scope, true),
+            "a page script with a URL (inline and external scripts, timers, handlers)"
+        );
+        assert!(
+            page_script_error_is_shared_cross_origin(scope, false),
+            "a page script without a URL (inserted inline and document-start scripts)"
+        );
     }
 
     #[test]

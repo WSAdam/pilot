@@ -2018,7 +2018,10 @@ fn execute_committed_inline_classic_script(
         return;
     };
     unsafe { &mut *host_ptr }.push_current_inline_script(node);
-    let compiled = v8::Script::compile(&scope, source, None);
+    // pilot: still without a resource name, but shared cross-origin, so
+    // DevTools gets the object of an error the script creates (util.rs).
+    let origin = crate::util::create_unnamed_page_script_origin(&mut scope);
+    let compiled = v8::Script::compile(&scope, source, Some(&origin));
     let ran = compiled
         .and_then(|script| crate::script_execution::execute_compiled_script(&mut scope, script))
         .is_some();
