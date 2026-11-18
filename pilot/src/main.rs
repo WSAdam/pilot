@@ -37,6 +37,10 @@ fn run() -> Result<ExitCode> {
         None => None,
     };
 
+    // Animation frames follow the display's refresh rate, as Chrome's do;
+    // read once, before any page runs (display.rs).
+    pilot::display::install_frame_rate(launch.headless);
+
     let runtime_thread_budget = moli::runtime_thread_budget::tokio_runtime_thread_budget();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(runtime_thread_budget)
