@@ -1140,7 +1140,10 @@ mod tests {
             v8::String::new(&scope, "throw new Error('page error')").expect("page script source");
         let script =
             v8::Script::compile(&scope, source, Some(&origin)).expect("the page script compiles");
-        assert!(script.run(&scope).is_none(), "the page script throws");
+        assert!(
+            crate::script_execution::execute_compiled_script(&mut scope, script).is_none(),
+            "the page script throws"
+        );
         let message = scope.message().expect("the uncaught error has a message");
         message.is_shared_cross_origin()
     }
