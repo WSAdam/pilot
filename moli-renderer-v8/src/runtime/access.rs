@@ -24,6 +24,12 @@ where
             stage = "owner_local_task_spawned",
         );
     }
+    // pilot: the task future is boxed before it is spawned, so only a pointer
+    // travels through tokio's spawn frames. In a debug build each of those
+    // frames holds the spawned future by value, and a page-task future is
+    // large enough that a dozen copies overflowed the 2 MiB test thread stack
+    // (gate runs 44155204410 and 44196996026).
+    let future = Box::pin(future);
     tokio::task::spawn_local(async move {
         let result = local_executor.scope_on_current_thread(future).await;
         let _ = reply_tx.send(result);
@@ -136,4 +142,49 @@ pub(super) fn is_on_script_execution_lane_for(local_executor: &JsLocalExecutor) 
 #[cfg(test)]
 pub(super) fn is_on_parse_time_scaffold_lane() -> bool {
     crate::local_executor::is_on_scoped_js_local_executor_lane()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 2026-11-17: run_named_owner_local_task handed its task future to tokio::task::spawn_local by value, and in a debug build each of tokio's dozen spawn frames held a copy, so a large page-task future overflowed the 2 MiB test thread stack (worker test child_message_handler_external_dedicated_worker_binds_child_client_event_owner, gate runs 44155204410 and 44196996026).
+    #[test]
+    fn a_large_owner_task_future_is_spawned_without_copies_on_the_stack() {
+        const PAYLOAD_BYTES: usize = 256 * 1024;
+        // The default test thread stack, whatever RUST_MIN_STACK says.
+        let thread = std::thread::Builder::new()
+            .name("large-owner-task".to_owned())
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("current-thread runtime");
+                let local = tokio::task::LocalSet::new();
+                runtime.block_on(local.run_until(Box::pin(async {
+                    // The payload lives across an await, so it is part of the
+                    // task future's own state, like a page task's locals.
+                    let task = async {
+                        let payload = [7u8; PAYLOAD_BYTES];
+                        tokio::task::yield_now().await;
+                        Ok::<usize, anyhow::Error>(
+                            payload.iter().map(|byte| usize::from(*byte)).sum(),
+                        )
+                    };
+                    run_named_owner_local_task(
+                        JsLocalExecutor::new(),
+                        "large owner task was canceled",
+                        task,
+                    )
+                    .await
+                })))
+            })
+            .expect("spawn the 2 MiB test thread");
+        let sum = thread
+            .join()
+            .expect("the large owner task must not overflow the stack")
+            .expect("the large owner task should finish");
+        assert_eq!(sum, 7 * PAYLOAD_BYTES);
+    }
 }
