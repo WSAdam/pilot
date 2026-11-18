@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<title>Page errors</title>
+<script>
+  // Every error on this page is created by the page's own code, each in a
+  // differently compiled script, and kept in window.thrown by its message so
+  // a test can check that DevTools reports that very object.
+  window.thrown = {};
+  window.keep = (error) => (window.thrown[error.message] = error);
+</script>
+<button id="attribute" onclick="throw keep(new Error('attribute handler'))">attribute</button>
+<button id="listener">listener</button>
+<script>
+  document.getElementById('listener').addEventListener('click', () => {
+    throw keep(new Error('listener'));
+  });
+  window.throwFromTimer = (message) => setTimeout(() => {
+    throw keep(new Error(message));
+  }, 0);
+  window.throwFromStringTimer = () => setTimeout("throw keep(new Error('string timer'))", 0);
+  throw keep(new Error('inline at load'));
+</script>
+<script type="module">
+  window.throwFromModuleTimer = (message) => setTimeout(() => {
+    throw keep(new Error(message));
+  }, 0);
+</script>
