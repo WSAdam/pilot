@@ -14,8 +14,16 @@ const FRAME_MS = 1000 / 60;
 let browser;
 let page;
 
+// 2026-11-18 (Build 11): pilot's frames follow the display's refresh rate, as
+// Chrome's do (build11-frames.test.mjs), so this file pins pilot to 60 Hz with
+// PILOT_FRAME_RATE to keep testing the 60 Hz grid on any display.
 before(async () => {
-  browser = await chromium.launch({ executablePath: pilotBin, headless: true, env: noWindowEnv, timeout: 30_000 });
+  browser = await chromium.launch({
+    executablePath: pilotBin,
+    headless: true,
+    env: { ...noWindowEnv, PILOT_FRAME_RATE: '60' },
+    timeout: 30_000,
+  });
   page = await (await browser.newContext()).newPage();
   await page.setContent('<button id="go">Go</button>');
 });
