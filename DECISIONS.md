@@ -105,3 +105,13 @@ Date: 2026-11-09
 When Playwright (or MCP's browser_navigate) navigates to a file:// URL, pilot reads the file and loads it as a document, as Chrome does: text/plain shows in a `<pre>`, HTML renders. A file:// page may navigate to another file. A web page still cannot open a file:// URL, and fetch/XHR of file URLs stays refused. Subresources of a file:// page (its CSS and images) are not loaded yet. Moli's own default is unchanged: the switch is `FetchConfig::set_local_file_navigation`, which pilot turns on in `pilot/src/config.rs`.
 Why: pilot is driven as Chrome, and Playwright MCP decides which local files an agent may open (its `allowUnrestrictedFileAccess` and workspace roots). Refusing every file:// navigation broke that, without making anything safer than Chrome itself.
 Date: 2026-11-10
+
+## pilot lays phone pages out by their `<meta name=viewport>`
+Under phone emulation (`mobile: true`), pilot processes `<meta name=viewport>` the way Blink does. A page without one lays out at 980px and is shown scaled to fit the screen. `width=device-width` lays out at the screen width. Desktop ignores the tag. `Page.getLayoutMetrics` reports Chrome's page scale. This supersedes the last sentence of "pilot emulates phones at the device width, without viewport-meta layout" (2026-11-03).
+Why: Build 8 closed the gap that entry left open, so pages that aren't responsive lay out and screenshot on a phone as they do in Chrome.
+Date: 2026-11-18
+
+## A file:// page loads its own subresources
+A file:// page's relative stylesheets, scripts and images load from disk, as in Chrome. A web page still cannot load file:// URLs, and fetch/XHR of file URLs is still refused. This supersedes the "not loaded yet" sentence of "pilot loads local files when the browser navigates to them" (2026-11-10).
+Why: Build 8 closed that gap. Playwright MCP opens local HTML reports and fixtures that link their CSS and images relatively.
+Date: 2026-11-18
