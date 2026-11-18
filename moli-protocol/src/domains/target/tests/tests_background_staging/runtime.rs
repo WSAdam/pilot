@@ -161,10 +161,11 @@ async fn same_context_background_session_can_stage_its_own_runtime_enable_before
         runtime_events[1]["method"],
         "Runtime.executionContextCreated"
     );
-    assert_eq!(
-        runtime_events[1]["params"]["context"]["name"],
-        json!("data:text/html,<title>page-b</title><div id='ok'>page b</div>")
-    );
+    // 2026-11-18 (pilot, Build 10): a main world's context name is "", as in
+    // Chrome; it was the document URL (the page-b data: URL). Requirement
+    // changed, not loosened: the frameId check below still pins the context
+    // to the second target.
+    assert_eq!(runtime_events[1]["params"]["context"]["name"], json!(""));
     assert_eq!(
         runtime_events[1]["params"]["context"]["auxData"]["frameId"],
         json!(second_target_id)
