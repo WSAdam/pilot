@@ -409,7 +409,7 @@ impl DocumentInspectorBinding {
         registered_context: v8::Global<v8::Context>,
         replaced_registration_id: Option<DocumentInspectorContextRegistrationId>,
         name: &str,
-        grant_universal_access: bool,
+        document_url: &Url,
         frame_id: Option<&str>,
     ) -> Result<
         Option<(
@@ -419,23 +419,24 @@ impl DocumentInspectorBinding {
     > {
         self.agent.assert_isolate_backend(backend);
         let snap = self.outbound_snapshots();
+        // pilot: Blink describes an isolated world to V8's inspector with the
+        // origin of its frame's Document and an auxData of isDefault, type and
+        // frameId only, whatever grantUniversalAccess was. Moli passed an
+        // empty origin and added grantUniversalAccess.
         let mut aux_data = serde_json::Map::new();
         aux_data.insert("isDefault".to_owned(), json!(false));
         aux_data.insert("type".to_owned(), json!("isolated"));
-        aux_data.insert(
-            "grantUniversalAccess".to_owned(),
-            json!(grant_universal_access),
-        );
         if let Some(frame_id) = frame_id {
             aux_data.insert("frameId".to_owned(), json!(frame_id));
         }
         let aux_data = serde_json::to_string(&Value::Object(aux_data))?;
+        let origin = inspector_execution_context_origin(document_url);
         let context_group_id = self.agent.context_group_id();
         let context_unique_id = backend.context_created_with_unique_id(
             context,
             context_group_id,
             name.as_bytes(),
-            b"",
+            origin.as_bytes(),
             aux_data.as_bytes(),
         );
         let v8_context_id = v8::inspector::V8Inspector::execution_context_id(context);

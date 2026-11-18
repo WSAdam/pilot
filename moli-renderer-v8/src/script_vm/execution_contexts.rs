@@ -310,19 +310,24 @@ impl ScriptVm {
             .child_browsing_context_request_initiator_url(child_handle)
     }
 
-    pub(super) fn isolated_world_runtime_realm_info(
-        &self,
-        context_id: i64,
-    ) -> Option<RendererRuntimeRealmInfo> {
-        let world = self.page_isolated_world_contexts.context(context_id)?;
-        let origin = world
-            .child_handle
+    /// The URL of the Document an isolated world belongs to: the current
+    /// Document of the child frame it was created in, or the top-level one.
+    pub(super) fn isolated_world_document_url(&self, child_handle: Option<DomHandle>) -> Url {
+        child_handle
             .and_then(|handle| {
                 self._context_host
                     .borrow()
                     .child_browsing_context_current_url(handle)
             })
-            .unwrap_or_else(|| self.document_runtime.document_url().clone());
+            .unwrap_or_else(|| self.document_runtime.document_url().clone())
+    }
+
+    pub(super) fn isolated_world_runtime_realm_info(
+        &self,
+        context_id: i64,
+    ) -> Option<RendererRuntimeRealmInfo> {
+        let world = self.page_isolated_world_contexts.context(context_id)?;
+        let origin = self.isolated_world_document_url(world.child_handle);
         Some(RendererRuntimeRealmInfo {
             context_id,
             realm_id: world.inspector_execution_context_realm_id.clone(),
@@ -878,6 +883,7 @@ impl ScriptVm {
             )?;
         let runtime_observable_context_token = context_bootstrap.runtime_observable_context_token;
         let runtime = context_bootstrap.into_runtime();
+        let document_url = self.isolated_world_document_url(child_handle);
         let renderer_document_isolate = self.renderer_document_isolate.clone();
         let inspector_document_isolate = renderer_document_isolate.clone();
         let page_inspector = &mut self.page_inspector;
@@ -895,7 +901,7 @@ impl ScriptVm {
                     registered_context,
                     None,
                     name,
-                    grant_universal_access,
+                    &document_url,
                     inspector_frame_id,
                 )
             })?;
@@ -995,13 +1001,13 @@ impl ScriptVm {
                 .ok_or_else(|| {
                     anyhow!("unknown isolated execution context `{execution_context_id}`")
                 })?;
-            let (name, grant_universal_access, frame_id, replaced_registration_id) = self
+            let (name, child_handle, frame_id, replaced_registration_id) = self
                 .page_isolated_world_contexts
                 .context(execution_context_id)
                 .map(|world| {
                     (
                         world.name.clone(),
-                        world.grant_universal_access,
+                        world.child_handle,
                         world.frame_id.clone(),
                         world.inspector_context_registration_id,
                     )
@@ -1009,6 +1015,7 @@ impl ScriptVm {
                 .ok_or_else(|| {
                     anyhow!("unknown isolated execution context `{execution_context_id}`")
                 })?;
+            let document_url = self.isolated_world_document_url(child_handle);
             let inspector_frame_id = frame_id.as_deref().or(self.root_frame_id.as_deref());
             let renderer_document_isolate = self.renderer_document_isolate.clone();
             let inspector_document_isolate = renderer_document_isolate.clone();
@@ -1027,7 +1034,7 @@ impl ScriptVm {
                             registered_context,
                             Some(replaced_registration_id),
                             &name,
-                            grant_universal_access,
+                            &document_url,
                             inspector_frame_id,
                         )
                     },

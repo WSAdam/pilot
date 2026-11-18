@@ -1529,15 +1529,37 @@ async fn runtime_enable_replays_multiple_isolated_worlds_in_registration_order()
         "Runtime.enable replay should include the default context: {created:?}"
     );
 
+    // 2026-11-18: an isolated world carries its Document's origin, the main
+    // world's, and its auxData holds isDefault, type and frameId only, as in
+    // Chrome; Moli reported origin "" and grantUniversalAccess false or true.
+    let main_world = created
+        .iter()
+        .find(|message| message["params"]["context"]["auxData"]["isDefault"] == json!(true))
+        .expect("Runtime.enable replay should include the default context");
+    let main_world_frame_id = &main_world["params"]["context"]["auxData"]["frameId"];
+    let is_chromes_isolated_aux_data = |aux_data: &serde_json::Value| {
+        aux_data.as_object().is_some_and(|members| {
+            members
+                .keys()
+                .all(|key| matches!(key.as_str(), "isDefault" | "type" | "frameId"))
+        }) && aux_data["isDefault"] == json!(false)
+            && aux_data["type"] == json!("isolated")
+            && &aux_data["frameId"] == main_world_frame_id
+    };
+
     let world_a = created
         .iter()
         .find(|message| message["params"]["context"]["id"] == json!(world_a_id))
         .expect("Runtime.enable replay should include utility-a");
     assert_eq!(world_a["params"]["context"]["name"], "utility-a");
     assert_eq!(world_a["params"]["context"]["auxData"]["isDefault"], false);
+    assert!(
+        is_chromes_isolated_aux_data(&world_a["params"]["context"]["auxData"]),
+        "utility-a auxData should be isDefault, type and frameId only: {world_a:?}"
+    );
     assert_eq!(
-        world_a["params"]["context"]["auxData"]["grantUniversalAccess"],
-        false
+        world_a["params"]["context"]["origin"],
+        main_world["params"]["context"]["origin"]
     );
     assert!(
         world_a["params"]["context"]["uniqueId"].as_str().is_some(),
@@ -1550,9 +1572,13 @@ async fn runtime_enable_replays_multiple_isolated_worlds_in_registration_order()
         .expect("Runtime.enable replay should include utility-b");
     assert_eq!(world_b["params"]["context"]["name"], "utility-b");
     assert_eq!(world_b["params"]["context"]["auxData"]["isDefault"], false);
+    assert!(
+        is_chromes_isolated_aux_data(&world_b["params"]["context"]["auxData"]),
+        "utility-b auxData should be isDefault, type and frameId only: {world_b:?}"
+    );
     assert_eq!(
-        world_b["params"]["context"]["auxData"]["grantUniversalAccess"],
-        true
+        world_b["params"]["context"]["origin"],
+        main_world["params"]["context"]["origin"]
     );
     assert!(
         world_b["params"]["context"]["uniqueId"].as_str().is_some(),
