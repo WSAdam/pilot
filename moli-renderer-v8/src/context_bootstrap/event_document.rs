@@ -1,4 +1,6 @@
-use super::events::{new_uninitialized_text_event, set_event_initialized};
+use super::events::{
+    new_uninitialized_before_unload_event, new_uninitialized_text_event, set_event_initialized,
+};
 use super::*;
 use crate::webidl;
 use std::str::FromStr;
@@ -42,7 +44,9 @@ enum DocumentCreateEventKind {
 impl DocumentCreateEventKind {
     fn constructor_name(self) -> &'static str {
         match self {
-            DocumentCreateEventKind::BeforeUnloadEvent => "Event",
+            // pilot: the DOM's createEvent table maps "beforeunloadevent" to
+            // BeforeUnloadEvent, as Chrome does, not to a plain Event.
+            DocumentCreateEventKind::BeforeUnloadEvent => "BeforeUnloadEvent",
             DocumentCreateEventKind::Event => "Event",
             DocumentCreateEventKind::CustomEvent => "CustomEvent",
             DocumentCreateEventKind::DeviceMotionEvent => "DeviceMotionEvent",
@@ -75,6 +79,10 @@ fn new_uninitialized_document_event<'s>(
         super::exposed_interfaces::ensure_intrinsic_interface_constructor(scope, name).ok()?;
     if kind == DocumentCreateEventKind::TextEvent {
         return new_uninitialized_text_event(scope);
+    }
+    // pilot: BeforeUnloadEvent has no public constructor to call.
+    if kind == DocumentCreateEventKind::BeforeUnloadEvent {
+        return new_uninitialized_before_unload_event(scope);
     }
     let empty_type = v8str(scope, "");
     let event = constructor.new_instance(scope, &[empty_type.into()])?;

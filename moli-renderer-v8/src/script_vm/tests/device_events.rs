@@ -62,12 +62,15 @@ fn device_event_exposure_and_legacy_creation_use_native_realm_metadata() {
           }
           return JSON.stringify(rows);
         })()"#).unwrap();
+        // pilot: createEvent("BeforeUnloadEvent") returns a BeforeUnloadEvent,
+        // as the DOM's createEvent table and Chrome do; this expected a plain
+        // Event, which was pilot's gap (2026-11-18), not Chrome behaviour.
         assert_eq!(
             result,
             if exposed {
-                r#"["[object Event]:","[object Event]:","[object TextEvent]:","[object DeviceMotionEvent]:","[object DeviceOrientationEvent]:"]"#
+                r#"["[object Event]:","[object BeforeUnloadEvent]:","[object TextEvent]:","[object DeviceMotionEvent]:","[object DeviceOrientationEvent]:"]"#
             } else {
-                r#"["[object Event]:","[object Event]:","[object TextEvent]:","NotSupportedError","NotSupportedError"]"#
+                r#"["[object Event]:","[object BeforeUnloadEvent]:","[object TextEvent]:","NotSupportedError","NotSupportedError"]"#
             },
             "{url}"
         );

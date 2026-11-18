@@ -401,6 +401,49 @@ fn create_event_legacy_aliases_create_uninitialized_events() {
     assert_eq!(result, "ok");
 }
 
+// 2026-11-18: document.createEvent("BeforeUnloadEvent") returned a plain
+// Event (event_document.rs mapped the name to the Event constructor), whose
+// returnValue is Event's legacy boolean; the DOM's createEvent table maps it,
+// case-insensitively, to BeforeUnloadEvent, as Chrome does.
+#[test]
+fn create_event_before_unload_event_returns_a_before_unload_event() {
+    let mut vm = new_storage_test_vm("https://create-before-unload-event.test/");
+
+    let result = vm
+        .eval(
+            r#"
+            (() => {
+              const event = document.createEvent("beforeunloadevent");
+              const created = [
+                event instanceof BeforeUnloadEvent,
+                Object.prototype.toString.call(event),
+                typeof event.returnValue,
+                event.returnValue,
+                event.type,
+                event.isTrusted,
+                event.cancelable
+              ];
+              event.initEvent("beforeunload", false, true);
+              event.returnValue = "stay";
+              const initialized = [
+                event instanceof BeforeUnloadEvent,
+                event.type,
+                event.cancelable,
+                event.returnValue,
+                event.defaultPrevented
+              ];
+              return JSON.stringify([created, initialized]);
+            })()
+            "#,
+        )
+        .expect("createEvent(\"BeforeUnloadEvent\") probe should evaluate");
+
+    assert_eq!(
+        result,
+        r#"[[true,"[object BeforeUnloadEvent]","string","","",false,false],[true,"beforeunload",true,"stay",false]]"#
+    );
+}
+
 #[test]
 fn legacy_text_event_is_illegal_to_construct_and_uses_idl_initializer_defaults() {
     let mut vm = new_storage_test_vm("https://legacy-text-event.test/");

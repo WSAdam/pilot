@@ -106,6 +106,28 @@ pub(in crate::context_bootstrap) fn construct_original_beforeunload_event<'s>(
     Some(wrapper)
 }
 
+/// pilot: `document.createEvent("BeforeUnloadEvent")`. The DOM's createEvent
+/// table maps that name to BeforeUnloadEvent, and Chrome returns one: an
+/// untrusted, uninitialized event of type "" whose DOMString `returnValue`
+/// is "". Built like the dispatched one above, since the interface has no
+/// public constructor; `initEvent` initializes it like any Event.
+pub(in crate::context_bootstrap) fn new_uninitialized_before_unload_event<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let event = new_event_state(scope);
+    base::initialize_event_object(scope, event, "", false, false);
+    let empty_return_value = v8str(scope, "");
+    set_private_value(
+        scope,
+        event,
+        methods::BEFORE_UNLOAD_EVENT_RETURN_VALUE_SLOT,
+        empty_return_value.into(),
+    );
+    base::set_event_initialized(scope, event, false);
+    web_api_interfaces::initialize(scope, event, "BeforeUnloadEvent").ok()?;
+    new_event_wrapper(scope, event)
+}
+
 pub(in crate::context_bootstrap) fn new_uninitialized_text_event<'s>(
     scope: &mut v8::PinScope<'s, '_>,
 ) -> Option<v8::Local<'s, v8::Object>> {
