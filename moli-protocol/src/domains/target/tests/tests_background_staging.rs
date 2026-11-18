@@ -21,10 +21,11 @@ fn take_staged_about_blank_runtime_context(
                 && message["method"] == json!("Runtime.executionContextCreated")
         },
     );
-    assert_eq!(
-        created["params"]["context"]["name"],
-        json!("about:blank#second")
-    );
+    // 2026-11-18 (pilot, Build 10): a main world's context name is "", as in
+    // Chrome; it was the document URL (about:blank#second). Requirement
+    // changed, not loosened: the frameId and native uniqueId checks below
+    // still pin the staged context to this target.
+    assert_eq!(created["params"]["context"]["name"], json!(""));
     assert_eq!(
         created["params"]["context"]["auxData"]["frameId"],
         json!(target_id)
