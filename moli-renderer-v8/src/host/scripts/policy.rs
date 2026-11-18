@@ -147,6 +147,18 @@ impl ScriptFailurePageTaskPolicy {
                     report_window_failure: true,
                     load_event_after_window_failure: false,
                 },
+                // pilot: the module's own exception was reported when its
+                // evaluation threw; the script element then gets load, as
+                // HTML's "execute the script element" fires it for an
+                // external script whatever running it did.
+                ModuleFailurePolicy::EvaluationExceptionReported => Self {
+                    load_event: event_policy.dispatch_policy(ScriptEventKind::Load),
+                    error_event: ScriptEventDispatchPolicy::Skip(
+                        ScriptEventSkipReason::ModuleGraphFailure,
+                    ),
+                    report_window_failure: false,
+                    load_event_after_window_failure: true,
+                },
             };
         }
         Self {

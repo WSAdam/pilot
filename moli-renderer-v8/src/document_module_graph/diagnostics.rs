@@ -15,6 +15,10 @@ pub(crate) struct ModuleLoadError {
     message: String,
     error_constructor: Option<ScriptErrorConstructorKind>,
     top_level_module_load_failure: bool,
+    /// pilot: the module script's evaluation threw and that exception was
+    /// already reported to the window, as HTML's "run a module script" does,
+    /// so the script's failure must not report a second, stand-in error.
+    exception_reported: bool,
 }
 
 impl ModuleLoadError {
@@ -24,7 +28,19 @@ impl ModuleLoadError {
             message: message.into(),
             error_constructor: None,
             top_level_module_load_failure: false,
+            exception_reported: false,
         }
+    }
+
+    /// pilot: marks an evaluation failure whose exception the window has
+    /// already been told about (script_vm/native_module/module_graph.rs).
+    pub(crate) fn with_exception_reported(mut self) -> Self {
+        self.exception_reported = true;
+        self
+    }
+
+    pub(crate) fn exception_reported(&self) -> bool {
+        self.exception_reported
     }
 
     pub(crate) fn with_error_constructor(

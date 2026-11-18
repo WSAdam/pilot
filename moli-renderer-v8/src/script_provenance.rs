@@ -10,6 +10,11 @@ use url::Url;
 pub(crate) struct CompiledStringProvenance {
     source_url: Url,
     module_base_url: Url,
+    /// pilot: HTML's "muted errors" of a classic script fetched cross-origin
+    /// without CORS. Such a script is compiled opaque and not shared
+    /// cross-origin, so its errors reach the page as "Script error." and
+    /// DevTools without the exception object, as in Chrome.
+    muted_errors: bool,
 }
 
 impl CompiledStringProvenance {
@@ -17,11 +22,18 @@ impl CompiledStringProvenance {
         Self {
             source_url,
             module_base_url,
+            muted_errors: false,
         }
     }
 
     pub(crate) fn at_url(url: Url) -> Self {
         Self::new(url.clone(), url)
+    }
+
+    /// pilot: the same provenance for a script whose errors are muted or not.
+    pub(crate) fn with_muted_errors(mut self, muted_errors: bool) -> Self {
+        self.muted_errors = muted_errors;
+        self
     }
 
     pub(crate) fn source_url(&self) -> &Url {
@@ -30,6 +42,10 @@ impl CompiledStringProvenance {
 
     pub(crate) fn module_base_url(&self) -> &Url {
         &self.module_base_url
+    }
+
+    pub(crate) fn muted_errors(&self) -> bool {
+        self.muted_errors
     }
 }
 

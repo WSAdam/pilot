@@ -543,19 +543,9 @@ pub(crate) fn report_event_callback_exception<'s>(
         }
     }
 
-    let error_value = report
-        .exception
-        .as_ref()
-        .map(|exception| v8::Local::new(scope, exception));
-    let _ = dispatch_window_error_event_with_details(
-        scope,
-        host_ptr,
-        &report.summary,
-        report.source.as_deref().unwrap_or(""),
-        report.line.unwrap_or(0) as u32,
-        report.column.unwrap_or(0) as u32,
-        error_value,
-    );
+    // pilot: with where the value was thrown and whether the script's errors
+    // are muted (exception_reporting.rs).
+    let _ = dispatch_window_error_event_for_exception_report(scope, host_ptr, report);
 }
 
 fn callback_error_window_handle<'s>(

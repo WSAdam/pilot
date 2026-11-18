@@ -61,6 +61,9 @@ struct ReportedExceptionDetails {
     lineno: u32,
     colno: u32,
     error: v8::Global<v8::Value>,
+    /// pilot: where V8's message for the value says it was thrown, so a value
+    /// with no stack of its own reaches DevTools as its own remote object.
+    throw_site: crate::exception_reporting::ExceptionThrowSite,
 }
 
 fn reported_exception_details<'s>(
@@ -73,8 +76,11 @@ fn reported_exception_details<'s>(
     // or location getters on the value.
     let exception_message = v8::Exception::create_message(scope, reason);
     let message = exception_message.get(scope).to_rust_string_lossy(scope);
+    // pilot: a script without a URL has the resource name undefined, which
+    // is an empty filename rather than "undefined", as in Chrome.
     let filename = exception_message
         .get_script_resource_name(scope)
+        .filter(|value| !value.is_null_or_undefined())
         .and_then(|value| value.to_string(scope))
         .map(|value| value.to_rust_string_lossy(scope))
         .unwrap_or_default();
@@ -87,6 +93,10 @@ fn reported_exception_details<'s>(
         .checked_add(1)
         .and_then(|column| u32::try_from(column).ok())
         .unwrap_or(0);
+    let throw_site = crate::exception_reporting::ExceptionThrowSite::from_message(
+        scope,
+        Some(exception_message),
+    );
 
     ReportedExceptionDetails {
         message,
@@ -94,6 +104,7 @@ fn reported_exception_details<'s>(
         lineno,
         colno,
         error: v8::Global::new(scope, reason),
+        throw_site,
     }
 }
 
@@ -127,6 +138,53 @@ pub(crate) fn dispatch_window_report_error_message<'s>(
     )
 }
 
+/// pilot: HTML's "report an exception" for `exception` in the current realm,
+/// after the `v8::TryCatch` that caught it is gone: the event's message and
+/// location are V8's for the value, as for `reportError()`. A module script
+/// whose evaluation threw reports its own error this way, as Blink's
+/// `V8ScriptRunner::ReportException` does.
+pub(crate) fn report_exception_to_window<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    host_ptr: *mut JsContextHost,
+    exception: v8::Local<'s, v8::Value>,
+) -> std::result::Result<(), String> {
+    let details = reported_exception_details(scope, exception);
+    dispatch_window_error_event_from_throw_site(
+        scope,
+        host_ptr,
+        &details.message,
+        &details.filename,
+        details.lineno,
+        details.colno,
+        Some(exception),
+        &details.throw_site,
+    )
+}
+
+/// pilot: HTML's "report an exception" for an exception V8 caught in page
+/// code, from what `report` kept of V8's message: where it was thrown, and
+/// whether its script's errors are muted.
+pub(crate) fn dispatch_window_error_event_for_exception_report<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    host_ptr: *mut JsContextHost,
+    report: &crate::exception_reporting::V8ExceptionReport,
+) -> std::result::Result<(), String> {
+    let error_value = report
+        .exception
+        .as_ref()
+        .map(|exception| v8::Local::new(scope, exception));
+    dispatch_window_error_event_from_throw_site(
+        scope,
+        host_ptr,
+        &report.summary,
+        report.source.as_deref().unwrap_or(""),
+        report.line.unwrap_or(0) as u32,
+        report.column.unwrap_or(0) as u32,
+        error_value,
+        &report.throw_site,
+    )
+}
+
 pub(crate) fn dispatch_window_error_event_with_details<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     host_ptr: *mut JsContextHost,
@@ -136,20 +194,63 @@ pub(crate) fn dispatch_window_error_event_with_details<'s>(
     colno: u32,
     error_value: Option<v8::Local<'s, v8::Value>>,
 ) -> std::result::Result<(), String> {
-    ensure_window_reflecting_body_onerror_handler(scope);
-    let (message_text, filename_text, has_error_value) = (message, filename, error_value.is_some());
-    let error_value = error_value.unwrap_or_else(|| v8::null(scope).into());
+    dispatch_window_error_event_from_throw_site(
+        scope,
+        host_ptr,
+        message,
+        filename,
+        lineno,
+        colno,
+        error_value,
+        &crate::exception_reporting::ExceptionThrowSite::default(),
+    )
+}
 
-    let message = v8_string(scope, message)
+/// pilot: what the window `error` event of a muted script error reads, as in
+/// HTML ("Script error.", an empty filename, 0, 0 and a null error).
+const MUTED_SCRIPT_ERROR_MESSAGE: &str = "Script error.";
+
+#[allow(clippy::too_many_arguments)]
+fn dispatch_window_error_event_from_throw_site<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    host_ptr: *mut JsContextHost,
+    message: &str,
+    filename: &str,
+    lineno: u32,
+    colno: u32,
+    error_value: Option<v8::Local<'s, v8::Value>>,
+    throw_site: &crate::exception_reporting::ExceptionThrowSite,
+) -> std::result::Result<(), String> {
+    ensure_window_reflecting_body_onerror_handler(scope);
+    let (message_text, filename_text) = (message, filename);
+    // pilot: an exception from a script fetched cross-origin without CORS is
+    // announced to the page sanitized (HTML "muted errors"); DevTools still
+    // gets it in full below, as Blink's ExceptionThrown does.
+    let (event_message, event_filename, event_lineno, event_colno, event_error) =
+        if throw_site.muted_errors {
+            (MUTED_SCRIPT_ERROR_MESSAGE, "", 0, 0, None)
+        } else {
+            (message, filename, lineno, colno, error_value)
+        };
+    let event_error = event_error.unwrap_or_else(|| v8::null(scope).into());
+
+    let message = v8_string(scope, event_message)
         .map(|s| s.into())
         .unwrap_or_else(|| v8::null(scope).into());
-    let filename = v8_string(scope, filename)
+    let filename = v8_string(scope, event_filename)
         .map(|s| s.into())
         .unwrap_or_else(|| v8::null(scope).into());
-    let init =
-        ErrorEventInitDeclaration::new(true, false, message, filename, lineno, colno, error_value)
-            .bind(scope)
-            .expect("ErrorEvent init declaration should bind");
+    let init = ErrorEventInitDeclaration::new(
+        true,
+        false,
+        message,
+        filename,
+        event_lineno,
+        event_colno,
+        event_error,
+    )
+    .bind(scope)
+    .expect("ErrorEvent init declaration should bind");
 
     let event_type = v8str(scope, "error");
     let event = super::super::exposed_interfaces::ensure_intrinsic_interface_constructor(
@@ -176,7 +277,13 @@ pub(crate) fn dispatch_window_error_event_with_details<'s>(
     let canceled = crate::context_bootstrap::event_backing(scope, event)
         .get(scope, v8str(scope, "defaultPrevented").into())
         .is_some_and(|value| value.boolean_value(scope));
-    if has_error_value && !canceled {
+    if let Some(error_value) = error_value
+        && !canceled
+    {
+        let throw_site_stack_trace = throw_site
+            .stack_trace
+            .as_ref()
+            .map(|stack_trace| v8::Local::new(scope, stack_trace));
         crate::script_vm::report_uncaught_exception_to_devtools(
             scope,
             message_text,
@@ -184,6 +291,8 @@ pub(crate) fn dispatch_window_error_event_with_details<'s>(
             lineno,
             colno,
             error_value,
+            throw_site_stack_trace,
+            throw_site.muted_errors,
         );
     }
 
@@ -247,7 +356,7 @@ pub(in crate::context_bootstrap) fn window_report_error_callback<'s>(
     };
     let dispatch_result = binding.with_current_scope(scope, host_ptr, |scope, _dispatch_scope| {
         let error = v8::Local::new(scope, &details.error);
-        dispatch_window_error_event_with_details(
+        dispatch_window_error_event_from_throw_site(
             scope,
             host_ptr,
             &details.message,
@@ -255,6 +364,7 @@ pub(in crate::context_bootstrap) fn window_report_error_callback<'s>(
             details.lineno,
             details.colno,
             Some(error),
+            &details.throw_site,
         )
     });
     if let Some(Err(message)) = dispatch_result {

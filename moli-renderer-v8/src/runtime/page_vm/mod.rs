@@ -432,9 +432,16 @@ fn wrap_native_esm_module_load_error(
         error.stage(),
         format!("{prefix}: {}", error.message()),
     );
-    match error.error_constructor() {
+    let wrapped = match error.error_constructor() {
         Some(error_constructor) => wrapped.with_error_constructor(error_constructor),
         None => wrapped,
+    };
+    // pilot: the module's own exception was already reported to the window;
+    // the wrapped error only names the failure for diagnostics.
+    if error.exception_reported() {
+        wrapped.with_exception_reported()
+    } else {
+        wrapped
     }
 }
 

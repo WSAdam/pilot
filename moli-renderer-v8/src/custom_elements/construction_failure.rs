@@ -54,6 +54,7 @@ pub(super) fn report_custom_element_construction_failure<'s>(
             stack: None,
             callback_context: None,
             exception: Some(v8::Global::new(scope, error_value)),
+            throw_site: Default::default(),
         };
         report_event_listener_exception(
             scope,

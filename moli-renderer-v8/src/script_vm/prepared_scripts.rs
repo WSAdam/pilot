@@ -581,8 +581,21 @@ impl ScriptVm {
     ) -> std::result::Result<LoadedScriptExecutionOutcome, PreparedScriptExecutionError> {
         match kind {
             ScriptKind::Classic => {
+                // pilot: a script fetched cross-origin without CORS has its
+                // errors muted, as in Chrome (util.rs).
+                let muted_errors =
+                    self.current_main_document_resource_loader()
+                        .is_some_and(|loader| {
+                            crate::util::classic_script_errors_are_muted(
+                                source_kind == ScriptSourceKind::External,
+                                fetch_metadata.cross_origin.as_deref(),
+                                script_url,
+                                &loader.fetch_context().request_origin(),
+                            )
+                        });
                 let provenance =
-                    CompiledStringProvenance::new(script_url.clone(), script_base_url.clone());
+                    CompiledStringProvenance::new(script_url.clone(), script_base_url.clone())
+                        .with_muted_errors(muted_errors);
                 let result = self.exec_in_enclosing_script_turn_with_provenance(
                     source,
                     &provenance,

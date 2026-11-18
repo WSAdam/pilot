@@ -431,6 +431,24 @@ pub(super) fn create_script_origin_with_base_url_and_nonce<'s>(
     base_url: Option<&Url>,
     nonce: Option<&str>,
 ) -> v8::ScriptOrigin<'s> {
+    create_classic_script_origin(scope, resource_name, line_offset, base_url, nonce, false)
+}
+
+/// pilot: the origin of a classic page script, as Blink's
+/// `V8ScriptRunner::CreateScriptOrigin` makes it. A script whose errors are
+/// muted (HTML "muted errors": fetched cross-origin without CORS) is opaque
+/// and not shared cross-origin, so its exceptions reach the page as "Script
+/// error." (exception_reporting.rs `ExceptionThrowSite`) and V8's Inspector
+/// leaves their object out of `Runtime.exceptionThrown`; every other page
+/// script is shared cross-origin.
+pub(crate) fn create_classic_script_origin<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    resource_name: &str,
+    line_offset: i32,
+    base_url: Option<&Url>,
+    nonce: Option<&str>,
+    muted_errors: bool,
+) -> v8::ScriptOrigin<'s> {
     let name = v8::String::new(scope, resource_name).expect("v8 string allocation");
     let host_defined_options = base_url.and_then(|base_url| {
         script_host_defined_options_with_base_url_and_nonce(scope, base_url, nonce)
@@ -440,14 +458,35 @@ pub(super) fn create_script_origin_with_base_url_and_nonce<'s>(
         name.into(),
         line_offset,
         0,
-        PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN,
+        PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN && !muted_errors,
         -1,
         None,
-        false,
+        muted_errors,
         false,
         false,
         host_defined_options,
     )
+}
+
+/// pilot: whether a classic script's errors are muted, as HTML decides it for
+/// a script fetched in no-cors mode: an external script without a
+/// `crossorigin` attribute whose URL is cross-origin to the document. A
+/// `data:` URL is never cross-origin in that sense. Only a document with a
+/// tuple origin mutes, so a page with an opaque origin (`about:blank`,
+/// `data:`, `file:`) keeps every script's errors in full. Redirects are not
+/// followed here: a same-origin URL that redirects cross-origin still reports
+/// in full.
+pub(crate) fn classic_script_errors_are_muted(
+    is_external: bool,
+    cross_origin_attribute: Option<&str>,
+    script_url: &Url,
+    document_origin: &moli_url::WebOrigin,
+) -> bool {
+    is_external
+        && cross_origin_attribute.is_none()
+        && script_url.scheme() != "data"
+        && !document_origin.is_opaque()
+        && !document_origin.same_origin_url(script_url)
 }
 
 /// pilot: every script compiled from page code is shared cross-origin, as
@@ -456,8 +495,8 @@ pub(super) fn create_script_origin_with_base_url_and_nonce<'s>(
 /// `Runtime.exceptionThrown` only when the script that created the error is
 /// shared cross-origin (`V8ConsoleMessage::reportToFrontend`), so without the
 /// flag an error from page code reached DevTools, and Playwright's
-/// `pageerror`, as text alone. Moli does not mute the errors of cross-origin
-/// classic scripts, so no page script is compiled without the flag.
+/// `pageerror`, as text alone. The one exception is a classic script whose
+/// errors are muted (`create_classic_script_origin`).
 pub(crate) const PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN: bool = true;
 
 /// pilot: the origin of a page script that has no resource name, such as an
@@ -1079,7 +1118,8 @@ mod tests {
     use std::pin::pin;
 
     use super::{
-        SCRIPT_BASE_URL_HOST_DEFINED_OPTIONS_MARKER, create_script_origin_with_base_url,
+        SCRIPT_BASE_URL_HOST_DEFINED_OPTIONS_MARKER, classic_script_errors_are_muted,
+        create_classic_script_origin, create_script_origin_with_base_url,
         create_unnamed_page_script_origin, object_chain_contains,
         script_base_url_from_host_defined_options,
         script_host_defined_options_with_base_url_and_nonce,
@@ -1165,6 +1205,121 @@ mod tests {
         assert!(
             page_script_error_is_shared_cross_origin(scope, false),
             "a page script without a URL (inserted inline and document-start scripts)"
+        );
+    }
+
+    /// pilot: what the exception report of a classic page script that throws
+    /// `source` keeps of V8's message: whether its errors are muted, whether
+    /// the stack the value was thrown at was kept, and its source URL. The
+    /// script is `https://cdn.example.test/lib.js` (muted or not), or a
+    /// script without a URL when `named` is false.
+    fn classic_script_exception_report(
+        scope: &mut v8::PinScope<'_, '_>,
+        source: &str,
+        named: bool,
+        muted_errors: bool,
+    ) -> (bool, bool, Option<String>) {
+        let try_catch = pin!(v8::TryCatch::new(scope));
+        let mut scope = try_catch.init();
+        let script_url = Url::parse("https://cdn.example.test/lib.js").unwrap();
+        let origin = if named {
+            create_classic_script_origin(
+                &mut scope,
+                script_url.as_str(),
+                0,
+                Some(&script_url),
+                None,
+                muted_errors,
+            )
+        } else {
+            create_unnamed_page_script_origin(&mut scope)
+        };
+        let source = v8::String::new(&scope, source).expect("classic script source");
+        let script = v8::Script::compile(&scope, source, Some(&origin))
+            .expect("the classic script compiles");
+        assert!(
+            crate::script_execution::execute_compiled_script(&mut scope, script).is_none(),
+            "the classic script throws"
+        );
+        let exception = scope.exception();
+        let message = scope.message();
+        let report = crate::exception_reporting::build_exception_report_without_stack(
+            &mut scope, exception, message,
+        );
+        (
+            report.throw_site.muted_errors,
+            report.throw_site.stack_trace.is_some(),
+            report.source.clone(),
+        )
+    }
+
+    // 2026-11-18: every classic script was compiled shared cross-origin and its exception report kept nothing of where the value was thrown, so a script fetched cross-origin without CORS reported its errors in full and a thrown string reached DevTools without a script to take its object from.
+    #[test]
+    fn a_muted_classic_script_reports_muted_errors_and_every_report_keeps_its_throw_site() {
+        ensure_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        isolate.set_capture_stack_trace_for_uncaught_exceptions(true, 32);
+        let scope = pin!(v8::HandleScope::new(&mut isolate));
+        let scope = &mut scope.init();
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+        let script_url = Some("https://cdn.example.test/lib.js".to_owned());
+
+        assert_eq!(
+            classic_script_exception_report(scope, "throw 'a string'", true, false),
+            (false, true, script_url.clone()),
+            "a script whose errors are not muted keeps the stack a string was thrown at"
+        );
+        assert_eq!(
+            classic_script_exception_report(scope, "throw new Error('muted')", true, true),
+            (true, true, script_url),
+            "a script fetched cross-origin without CORS has its errors muted"
+        );
+    }
+
+    // 2026-11-18: the exception report turned the resource name of a script without a URL (undefined) into the text "undefined", so the error event's filename and Runtime.exceptionThrown's url read "undefined" where Chrome has none.
+    #[test]
+    fn an_error_from_a_script_without_a_url_has_no_source() {
+        ensure_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = pin!(v8::HandleScope::new(&mut isolate));
+        let scope = &mut scope.init();
+        let context = v8::Context::new(scope, Default::default());
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        let (muted_errors, _, source) =
+            classic_script_exception_report(scope, "throw new Error('unnamed')", false, false);
+        assert!(!muted_errors);
+        assert_eq!(source, None, "no source rather than \"undefined\"");
+    }
+
+    // 2026-11-18: no classic script had its errors muted, so one fetched cross-origin without CORS reported them in full where Chrome reports "Script error.".
+    #[test]
+    fn classic_script_errors_are_muted_only_for_a_cross_origin_script_fetched_without_cors() {
+        let page = moli_url::WebOrigin::from_serialized("https://page.example.test");
+        let cdn = Url::parse("https://cdn.example.test/lib.js").unwrap();
+        let same = Url::parse("https://page.example.test/app.js").unwrap();
+        let data = Url::parse("data:text/javascript,throw%201").unwrap();
+
+        assert!(classic_script_errors_are_muted(true, None, &cdn, &page));
+        assert!(
+            !classic_script_errors_are_muted(true, Some("anonymous"), &cdn, &page),
+            "a crossorigin script is fetched with CORS"
+        );
+        assert!(!classic_script_errors_are_muted(true, None, &same, &page));
+        assert!(
+            !classic_script_errors_are_muted(false, None, &cdn, &page),
+            "an inline script"
+        );
+        assert!(!classic_script_errors_are_muted(true, None, &data, &page));
+        assert!(
+            !classic_script_errors_are_muted(
+                true,
+                None,
+                &cdn,
+                &moli_url::WebOrigin::from_serialized("null")
+            ),
+            "a document with an opaque origin keeps errors in full"
         );
     }
 
