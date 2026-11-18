@@ -21,6 +21,7 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 | 3b | heavy | done 2026-11-17, gate run 44124162484 (the second on `gate/build3b`); main fast-forwarded to e6217329d. The first run, 44111028067, failed two upstream Playwright-over-CDP tests whose helper expected a child frame's new context before its commit; Chrome sends the commit first, so the helper now waits for the context after it | a viewport resize reaches ResizeObservers; a child frame's commit is sent before its own child frames attach (nested iframes list all 3 frames); beforeunload and its dialog on Playwright-started navigations | Linux: clippy 8.6 GB, nextest 11.4 GB, release 6.9 GB. Mac release 3.4 GB. Your Mac: 0 | 1 h 53 min. Linux: clippy 11 min, nextest 38 + 3 min (22,103 + 216 tests; 2 upstream fetch-deadline tests flaky, passed on retry), release 16 min, smoke 2 min. Mac: release 38 min, conformance 46 pass and 0 todo, pilot-mcp 45/45 | release binaries only (downloaded) | 91887b4c7 … e6217329d |
 | 8 | heavy | done 2026-11-18, gate run 44296600166 (the third on `gate/build8`); main fast-forwarded to 602b9f6d1. Run 1 (44155204410) failed the emulation layout-metrics test, which now expects Chrome's page scale of 1, and a worker test that overflowed its stack. Run 2 (44196996026) failed the same worker test. Five diagnosis runs on throwaway `gate/diag-b8-*` branches found the cause: in a debug build, tokio's spawn_local passed a large page-task future by value through about 12 frames. Runs 44164466610 (bisect), 44180352795 (gdb), 44209002268 (core dumps), 44216554117 (gdb on the workspace build), and 44220737570 (the new test overflows without the fix and passes with it). The future is now boxed before it is spawned | file:// subresources, listbox option offset metrics, 980px layout without a viewport meta tag on phones, beforeunload for page-started navigations, inserted-script page errors; also legacy BeforeUnloadEvent return values, Chrome's page scale in getLayoutMetrics (whole-viewport screenshots at DPR 2 or 3), and the boxed owner-task future | Linux: clippy 8.6 GB, nextest 10.2 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0 | 1 h 50 min. Linux: clippy 10 min, nextest 30 + 2.5 min (22,135 + 216 tests, no flakes), release 14 min, smoke 1 min. Mac: release 48 min, conformance 55 pass and 0 todo, pilot-mcp 45/45 | release binaries only (downloaded) | 7c7742d17 … 602b9f6d1 |
 | 9 | heavy | done 2026-11-18, gate run 44357519409 (the second on `gate/build9`); main fast-forwarded to d713d45f4. 6 conformance tests red on the Build 8 binary (`build9.test.mjs`), 6 pilot-core patches; the code cache parked on `park/code-cache`. Run 1 (44329657407): Linux green; macOS first got no runner (GitHub capacity), then on the re-run passed all 8 Build 9 tests but failed Build 5's first-frame mean (13.4 ms against 13 on a loaded runner). Chromium 1223 serves an idle page's frame at once, so that gap was fixed in this build too (2 more conformance tests) | history.back() returns before its beforeunload dialog, createEvent("BeforeUnloadEvent"), screencast pageScaleFactor on phones, dialog events to every CDP session, a second session's navigation aborted behind a dismissed dialog or winning behind an accepted one; an idle page's first animation frame runs at once. Probe on the Mac binary: first-frame delay median 6.8 ms (Build 8: 12.6), Playwright's two-frame click wait median 21.8 ms (Build 8: 27.6; Chrome 9-11 at 120 Hz, a new TODO line) | Linux: clippy 8.6 GB, nextest 10.9 GB, release 6.9 GB. Mac release 3.5 GB. Your Mac: 0 | Run 2: 1 h 52 min. Linux: clippy 9 min, nextest 28.5 + 2.5 min (22,150 + 216 tests, no flakes), release 13 min, smoke 1 min (54/54). Mac: release 43 min, conformance 65 pass and 0 todo, pilot-mcp 45/45. Run 1 Linux: 1 h 4 min | release binaries only (downloaded) | e2e8674c0 … d713d45f4 |
+| 10 | heavy | running 2026-11-18 on `gate/build10`: 2 conformance files (`build10-errors.test.mjs`, `build10-runtime.test.mjs`), red on the Build 9 binary apart from one guard; 3 pilot-core patches. The Deno helper (lines 91 and 92) is already on main, with no build needed | page errors reach DevTools as the error object, the main world's context name is "", a Runtime command is parsed once in the renderer | | | | |
 | opt | heavy | only on request | network-fingerprint leftovers | | | | |
 
 **How a build moves through it:**
@@ -190,6 +191,31 @@ Each item has a conformance test in `pilot/conformance/build9.test.mjs`, green o
 - The agent's working patch warms the isolate cache from a process-wide code cache: it compiles the same source as an unbound script under the Inspector's origin before the Inspector dispatches. It saves an estimated 3–10 ms per new page, from the third page on, which only helps test suites.
 - It is parked on `park/code-cache` (384428fca) rather than adding a pre-compile step in front of every large Runtime.evaluate.
 - **The agent's lead for MCP:** each 346 KB evaluate is parsed into JSON about five times in the renderer, an estimated 1–3 ms on every navigation. It's a new TODO line.
+
+### Build 10: heavy, page error objects, the main world's name, one parse per evaluate (prep 2026-11-18)
+The scope is the cc-decide default: TODO lines 131, 188, 189, 91 and 92.
+
+**Lines 91 and 92 (Deno) needed no build.**
+- Line 91 doesn't reproduce: with Deno 2.9.8, 20 of 20 `chromium.launch` calls of the Build 9 binary succeeded.
+- Line 92 is `launchPilot()` in `pilot/deno/mod.ts`: it starts pilot on a free port and returns a connected Playwright browser. It's on main as 6db71df64, with 7 Deno tests green against Build 9.
+
+Each Rust item has a conformance test, green on Chromium headless shell 1223 and red on the Build 9 binary (the 346 KB evaluate test is a guard, green on both):
+| Item | Where | TODO |
+|---|---|---|
+| An error thrown by page code reaches Runtime.exceptionThrown as the error object, so Playwright's pageerror gets the real Error. V8 15's Inspector sends the object only when the script that created the error was compiled shared cross-origin, so page scripts are now compiled that way (`build10-errors.test.mjs`, 8 cases) | renderer script origins: util.rs, native_module.rs, mutation_commands.rs, eval_exec.rs | line 131 |
+| The main world's Runtime.executionContextCreated has an empty name, in the top frame and child frames (`build10-runtime.test.mjs`) | renderer inspector | line 188 |
+| The renderer reads a Runtime command's id, method and steering params once, skipping the script text, instead of parsing the whole command about five times. On Build 9 a 346 KB evaluate takes 7.9–9.0 ms against Chrome's 4.7–5.4 ms; the estimated saving is 2–2.5 ms on every navigation of an MCP tab, to be re-measured on the Build 10 binary | renderer inspector session (`command_head.rs`, new) | line 189 |
+
+**A changed requirement, said out loud:** 7 protocol-test assertions that expected the document URL as the main world's name now expect "", which is Chrome's value.
+
+**Gaps left as new TODO lines:**
+- thrown values that aren't Errors;
+- module script errors;
+- muted errors from cross-origin scripts;
+- exceptionDetails.text "Uncaught";
+- no url for eval code;
+- the utility world's context fields;
+- an evaluate serialized again at the frontend router.
 
 ### Optional, heavy: network-fingerprint leftovers (low payoff)
 - The items:
