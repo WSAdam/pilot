@@ -1,5 +1,9 @@
 name: pilot gate
 
+# DIAGNOSIS BRANCH ONLY (gate/diag-b8-core), never merged: the gate's full nextest
+# run with core dumps on, to get the backtrace of the worker test that overflows
+# its stack only in the full run (gate runs 44155204410, 44196996026).
+#
 # pilot's build gate, run on GitHub's machines instead of the developer's Mac:
 # one rustc of moli-renderer-v8 (a single 1.35M-line crate) peaks at 6-7 GB.
 # Work is pushed to a gate/<label> branch; main is fast-forwarded to it only when
@@ -7,7 +11,7 @@ name: pilot gate
 # uploads, because their timings and bot-wall results depend on the Mac and its IP.
 on:
   push:
-    branches: ["gate/**"]
+    branches: ["gate/diag-**"]
   workflow_dispatch:
     inputs:
       macos_only:
@@ -79,121 +83,37 @@ jobs:
         with:
           tool: nextest@0.9.132
 
-      - name: fmt
-        run: cargo fmt --all --check
+      - name: Install gdb
+        run: sudo apt-get install --yes --no-install-recommends gdb
 
-      - name: clippy
-        run: /usr/bin/time -v cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-      - name: nextest
-        run: /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
-
-      - name: nextest (moli fetch CLI, one test at a time)
-        # These tests give a whole debug-binary fetch 350 ms. Alongside 4 parallel
-        # tests on the shared runner, the page hadn't loaded by then (gate run 2).
-        run: cargo nextest run --workspace --profile ci -E 'binary(fetch_cli)' --test-threads 1
-
-      - name: Release build
-        env:
-          # LLVM optimizes the renderer in 16 pieces instead of Cargo.toml's one module.
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: /usr/bin/time -v cargo build --release -p moli -p pilot
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: 0.11.14
-          python-version: "3.12"
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24.15.0
-
-      - name: CDP smoke
+      - name: Build the tests
         run: |
           set -euo pipefail
-          uv sync --project moli-cdp-smoke --locked
-          npm ci --prefix moli-cdp-smoke
-          MOLI_BIN="$PWD/target/release/moli" uv run --project moli-cdp-smoke --no-sync moli-cdp-smoke \
-            --browser moli --strict-full-suite --jobs 2 --output-dir target/smoke/cdp
+          cargo nextest run --workspace --no-run
+          cargo test -p moli-renderer-v8 --lib --no-run 2>&1 | tee build.log
+          bin=$(grep -o 'target/debug/deps/moli_renderer_v8-[a-f0-9]*' build.log | head -1)
+          echo "TEST_BIN=$bin" >> "$GITHUB_ENV"
 
-      - name: Upload smoke report
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: smoke-report
-          path: target/smoke/
-          if-no-files-found: ignore
-          retention-days: 7
-
-  macos:
-    name: macOS - release build, conformance
-    # GitHub's macOS arm64 machines are scarce ("not acquired by Runner" on gate
-    # run 2), so this runs only after Linux passes, and alone it can be re-run
-    # with `gh run rerun <run-id> --failed`.
-    needs: linux
-    if: ${{ !cancelled() && (needs.linux.result == 'success' || inputs.macos_only || startsWith(github.ref_name, 'gate/mac-')) }}
-    runs-on: macos-15
-    timeout-minutes: 240
-    env:
-      # 7 GB runner: one renderer rustc at a time.
-      CARGO_BUILD_JOBS: "1"
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install pinned Rust toolchain
+      - name: nextest, as the gate runs it, with core dumps
         run: |
-          set -euo pipefail
-          toolchain=$(tr -d '[:space:]' < rust-toolchain)
-          rustup toolchain install "$toolchain" --profile minimal --no-self-update
-          rustc --version
+          set +e
+          sudo mkdir -p /tmp/cores && sudo chmod 1777 /tmp/cores
+          sudo sysctl -w kernel.core_pattern=/tmp/cores/core.%e.%p
+          ulimit -c unlimited
+          /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
+          echo "nextest exit $?"
+          ls -la /tmp/cores
+          exit 0
 
-      - name: Release build
-        env:
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-        run: /usr/bin/time -l cargo build --release -p moli -p pilot
-
-      # Uploaded before conformance, so a failing test still leaves a binary to
-      # debug on the Mac without compiling there.
-      - name: Package macOS binaries
-        run: tar -C target/release -czf pilot-macos-aarch64.tar.gz pilot moli
-
-      - name: Upload macOS binaries
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: pilot-macos-aarch64
-          path: pilot-macos-aarch64.tar.gz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
-      - name: Install Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 24.15.0
-
-      - name: Conformance
-        working-directory: pilot/conformance
-        env:
-          PILOT_BIN: ${{ github.workspace }}/target/release/pilot
+      - name: Backtraces from the cores
+        if: always()
         run: |
-          set -euo pipefail
-          npm ci
-          node --test --test-concurrency=1 --test-reporter=spec
-
-      # Record→replay (docs/record-replay.md): unit tests plus record-and-replay
-      # runs against the pilot built above. Node 24 runs the TypeScript directly.
-      - name: pilot-mcp
-        working-directory: pilot/mcp
-        env:
-          PILOT_BIN: ${{ github.workspace }}/target/release/pilot
-        run: |
-          set -euo pipefail
-          npm ci
-          npx tsc --noEmit -p .
-          npm test
+          set +e
+          for core in /tmp/cores/core.*; do
+            [ -e "$core" ] || { echo "no cores"; break; }
+            echo "=== $core ==="
+            gdb -q -batch -nx -ex 'set pagination off' -ex 'info threads' \
+              -ex 'echo \n=== innermost 120 ===\n' -ex 'bt 120' \
+              -ex 'echo \n=== outermost 40 ===\n' -ex 'bt -40' \
+              "$TEST_BIN" "$core" 2>&1 | cut -c1-400
+          done
