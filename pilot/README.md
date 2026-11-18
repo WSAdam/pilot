@@ -34,6 +34,8 @@ await browser.close();
 
 Playwright launches headless by default; pass `headless: false` to watch the page in pilot's window. `pilot/deno/launch_test.ts` checks this works (`cd pilot/deno && deno task test`).
 
+`pilot/deno/mod.ts` does it in one call. `launchPilot()` starts pilot on a free port and returns a connected browser, its CDP endpoint and a `close()`; see `pilot/deno/README.md`.
+
 ## The window
 
 Without `--headless`, pilot opens a window that shows the page the agent is driving:
@@ -48,7 +50,7 @@ The agent owns the page's size; the window scales it to fit. Closing the window 
 ## Environment variables
 
 - `PILOT_NO_WINDOW`: set to any value to run without the window even when `--headless` is absent. The test suites set it so they do not open windows on a desktop.
-- `PILOT_BIN`: used by `pilot/conformance` only. It selects the pilot binary under test; the default is `target/debug/pilot`.
+- `PILOT_BIN`: selects the pilot binary under test in `pilot/conformance` (default `target/debug/pilot`) and `pilot/deno` (default `target/release/pilot`). `launchPilot()` uses it too when no `executablePath` is given; otherwise it runs `pilot` from the `PATH`.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test": "deno test --allow-all launch_test.ts"
+    "test": "deno test --allow-all launch_test.ts mod_test.ts"
   },
   "imports": {
     "playwright-core": "npm:playwright-core@1.65.0-alpha-2026-10-30",
