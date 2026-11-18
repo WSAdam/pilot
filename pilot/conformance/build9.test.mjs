@@ -155,3 +155,26 @@ test('a second session navigation behind a dismissed beforeunload dialog is abor
     await page.waitForTimeout(300);
     assert.equal(await page.title(), 'Leave guard');
   }));
+
+// 2026-11-18: when the beforeunload dialog is accepted instead, Chrome lets the
+// later navigation win: the first (Playwright's goto) is aborted and the second
+// session's Page.navigate commits. pilot hung: the goto timed out, the second
+// Page.navigate was never answered and the page stayed "Loading".
+test('a second session navigation behind an accepted beforeunload dialog wins', { timeout: 60_000 }, () =>
+  withPage(async (page, context) => {
+    await page.goto(`${fixture.baseUrl}/greeting.html`);
+    await page.goto(`${fixture.baseUrl}/leave-guard.html`);
+    await page.click('#touch');
+    const second = await context.newCDPSession(page);
+    await second.send('Page.enable');
+    const dialog = page.waitForEvent('dialog', { timeout: 5_000 });
+    const leaving = page.goto(`${fixture.baseUrl}/greeting.html`, { timeout: 10_000 }).then(() => 'committed', (error) => error.message);
+    const opened = await dialog;
+    const queued = second.send('Page.navigate', { url: `${fixture.baseUrl}/late-button.html` });
+    await page.waitForTimeout(300);
+    await opened.accept();
+    assert.match(await leaving, /ERR_ABORTED/);
+    const answer = await within(queued, 5_000, 'no answer after 5 s');
+    assert.ok(answer?.loaderId && !answer.errorText, `second Page.navigate answered ${JSON.stringify(answer)}`);
+    await page.waitForFunction(() => document.title === 'late button', null, { timeout: 5_000 });
+  }));
