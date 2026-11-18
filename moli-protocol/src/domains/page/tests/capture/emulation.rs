@@ -607,3 +607,54 @@ async fn a_phone_screenshot_through_playwrights_clip_is_the_whole_layout_at_the_
     assert_eq!(decode_png_pixel(&image, 700, 20), [0, 0, 255, 255]);
     assert_eq!(decode_png_pixel(&image, 500, 200), [0, 0, 255, 255]);
 }
+
+// 2026-11-18: Page.screencastFrame metadata hard-coded pageScaleFactor 1.0; on a phone Chrome reports the page scale its viewport-meta layout is shown at (390/980 for a page without a tag on a 390px screen), and 1 on a desktop at any device pixel ratio.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_screencast_frame_carries_the_page_scale() {
+    let mut ctx = TestContext::new_with_layout_policy(moli_core::LayoutPolicy::Live);
+    install_active_screenshot_page(
+        &mut ctx,
+        "BID-VIEW-CAPTURE",
+        "TID-VIEW-CAPTURE",
+        SESSION,
+        &screenshot_data_url(HTML),
+    )
+    .await;
+    set_metrics(
+        &mut ctx,
+        json!({"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": true}),
+    )
+    .await;
+    let registration = start_screencast(&mut ctx, json!({}));
+    let completion = poll_screencast(&mut ctx, &registration, None).await;
+    let (frame, _) = take_frame(&mut ctx, &registration, completion);
+    let metadata = &frame["metadata"];
+    let scale = metadata["pageScaleFactor"]
+        .as_f64()
+        .expect("pageScaleFactor");
+    assert!((scale - 390.0 / 980.0).abs() < 1e-3, "{metadata}");
+    assert_eq!(metadata["deviceWidth"].as_f64(), Some(390.0), "{metadata}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_desktop_screencast_frame_at_dpr_2_carries_page_scale_1() {
+    let mut ctx = TestContext::new_with_layout_policy(moli_core::LayoutPolicy::Live);
+    install_active_screenshot_page(
+        &mut ctx,
+        "BID-VIEW-CAPTURE",
+        "TID-VIEW-CAPTURE",
+        SESSION,
+        &screenshot_data_url(HTML),
+    )
+    .await;
+    set_metrics(&mut ctx, json!({"deviceScaleFactor": 2})).await;
+    let registration = start_screencast(&mut ctx, json!({}));
+    let completion = poll_screencast(&mut ctx, &registration, None).await;
+    let (frame, _) = take_frame(&mut ctx, &registration, completion);
+    let metadata = &frame["metadata"];
+    assert_eq!(
+        metadata["pageScaleFactor"].as_f64(),
+        Some(1.0),
+        "{metadata}"
+    );
+}

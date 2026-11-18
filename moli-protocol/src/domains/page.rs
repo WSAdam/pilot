@@ -1176,7 +1176,10 @@ impl CdpConnection {
         }
         let metadata = crate::conn::PageScreencastFrameMetadata {
             offset_top: 0.0,
-            page_scale_factor: 1.0,
+            // pilot: the page scale the renderer drew the frame at, as Chrome
+            // reports it (1 on a desktop; below 1 on a phone page laid out
+            // wider than the screen). Upstream hard-coded 1.0.
+            page_scale_factor: frame.page_scale,
             device_width: f64::from(frame.viewport_size.0),
             device_height: f64::from(frame.viewport_size.1),
             scroll_offset_x: 0.0,

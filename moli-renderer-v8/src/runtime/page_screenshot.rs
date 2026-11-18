@@ -177,15 +177,19 @@ pub enum RendererCaptureScreenshotReply {
     NoDocument,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RendererCapturedScreencastFrame {
     /// Native viewport dimensions before the encoded frame is fitted to limits.
     pub viewport_size: (u32, u32),
     pub image: RendererCapturedScreenshot,
     pub visual_state: RendererVisualStateToken,
+    /// pilot: the page scale the frame shows the layout at, Chrome's
+    /// screencast `pageScaleFactor`: 1 on a desktop, and on a phone the scale
+    /// its viewport-meta layout is fitted to the screen at.
+    pub page_scale: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RendererCaptureScreencastFrameReply {
     Captured(RendererCapturedScreencastFrame),
     Unchanged,
@@ -317,6 +321,7 @@ impl PageVm {
                 viewport_size: surface.visible_size(),
                 image,
                 visual_state,
+                page_scale,
             },
         ))
     }
