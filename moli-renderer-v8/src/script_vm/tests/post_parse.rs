@@ -630,9 +630,13 @@ async fn request_animation_frame_callbacks_share_one_timestamp_per_batch() {
                 nextBatchIsLater:
                     globalThis.__animationFrameTimestamps[2] >
                     globalThis.__animationFrameTimestamps[0],
+                // pilot 2026-11-18: an idle page's first frame is served at once and
+                // stamped with the current frame's start, which may precede the
+                // request by up to one 60 Hz frame (Chromium 1223 stamps it with the
+                // latest vsync). The upstream check was `>= request time`.
                 usesPerformanceTimeline:
-                    globalThis.__animationFrameTimestamps[0] >=
-                        globalThis.__animationFrameRequestTime &&
+                    globalThis.__animationFrameTimestamps[0] >
+                        globalThis.__animationFrameRequestTime - 1000 / 60 &&
                     globalThis.__animationFrameTimestamps[0] < performance.timeOrigin,
             })
             "#,
@@ -677,8 +681,11 @@ async fn request_animation_frame_timestamps_land_on_the_60hz_frame_grid() {
                 return JSON.stringify({
                     count: stamps.length,
                     onGrid: stamps.every(onGrid),
-                    // One frame, plus the moment between performance.now() and the request.
-                    firstWithinOneFrame: stamps[0] > requested && stamps[0] - requested <= frame + 1,
+                    // 2026-11-18: the page is idle, so the first frame is the current
+                    // one, stamped with its start (Chrome's missed begin-frame); it
+                    // was the next boundary, after the request. The 0.2 ms covers a
+                    // coarsened performance.now() just after a boundary.
+                    firstIsTheCurrentFrame: stamps[0] <= requested + 0.2 && requested - stamps[0] < frame,
                     gapsAreWholeFrames: stamps.slice(1).every(
                         (stamp, index) => stamp > stamps[index] && onGrid(stamp - stamps[index])
                     ),
@@ -687,7 +694,62 @@ async fn request_animation_frame_timestamps_land_on_the_60hz_frame_grid() {
             "#,
         )
         .expect("animation frame grid result"),
-        r#"{"count":3,"onGrid":true,"firstWithinOneFrame":true,"gapsAreWholeFrames":true}"#
+        r#"{"count":3,"onGrid":true,"firstIsTheCurrentFrame":true,"gapsAreWholeFrames":true}"#
+    );
+}
+
+// 2026-11-18 (pilot): an animation frame requested on a page idle for over a
+// frame waited for the next 60 Hz boundary, 8.3 ms on average, so Playwright's
+// two-frame stability wait cost about two frames per click. Chrome serves it at
+// once with a missed begin-frame stamped with the latest vsync (Chromium 1223:
+// a median 0.1 ms), and the frame requested inside it waits for the next one.
+#[tokio::test]
+async fn an_animation_frame_requested_on_an_idle_page_runs_in_the_current_frame() {
+    let mut vm = new_storage_test_vm("https://example.com/");
+    let loader = ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).expect("loader");
+    vm.eval(
+        r#"
+        globalThis.__idleFrame = {};
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                const requested = performance.now();
+                globalThis.__idleFrame.requested = requested;
+                requestAnimationFrame(stamp => {
+                    globalThis.__idleFrame.stamp = stamp;
+                    requestAnimationFrame(next => {
+                        globalThis.__idleFrame.next = next;
+                    });
+                });
+            }, 40);
+        });
+        "scheduled";
+        "#,
+    )
+    .expect("idle animation frame setup");
+
+    vm.advance_timers_until_deadline_for_test(&loader)
+        .await
+        .expect("idle animation frame callbacks");
+
+    assert_eq!(
+        vm.eval(
+            r#"
+            (() => {
+                const frame = 1000 / 60;
+                const { requested, stamp, next } = globalThis.__idleFrame;
+                const onGrid = value => Math.abs(value / frame - Math.round(value / frame)) < 1e-6;
+                return JSON.stringify({
+                    ran: typeof stamp === "number" && typeof next === "number",
+                    // The current frame's start, not the next boundary after the request.
+                    stampIsTheCurrentFrame: stamp <= requested + 0.2 && requested - stamp < frame,
+                    onGrid: onGrid(stamp),
+                    nextIsOneFrameLater: Math.abs(next - stamp - frame) < 1e-6,
+                });
+            })()
+            "#,
+        )
+        .expect("idle animation frame result"),
+        r#"{"ran":true,"stampIsTheCurrentFrame":true,"onGrid":true,"nextIsOneFrameLater":true}"#
     );
 }
 

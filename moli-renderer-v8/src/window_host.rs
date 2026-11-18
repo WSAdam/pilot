@@ -61,6 +61,7 @@ const WINDOW_SCROLL_X_SLOT: &str = "__moliWindowScrollX";
 const WINDOW_SCROLL_Y_SLOT: &str = "__moliWindowScrollY";
 const WINDOW_PENDING_ANIMATION_FRAME_TIMESTAMP_SLOT: &str =
     "__moliWindowPendingAnimationFrameTimestamp";
+const WINDOW_LAST_ANIMATION_FRAME_TIMESTAMP_SLOT: &str = "__moliWindowLastAnimationFrameTimestamp";
 const IDLE_CALLBACK_BUDGET_MS: f64 = 50.0;
 const IDLE_DEADLINE_DID_TIMEOUT_SLOT: &str = "__moliIdleDeadlineDidTimeout";
 const IDLE_DEADLINE_MS_SLOT: &str = "__moliIdleDeadlineMs";
@@ -68,7 +69,9 @@ const IDLE_DEADLINE_TIME_ORIGIN_SLOT: &str = "__moliIdleDeadlineTimeOrigin";
 const IDLE_OPPORTUNITY_DELAY_MS: u32 = 1;
 /// Animation frames follow a fixed 60 Hz grid from the document's time origin,
 /// as Chrome's follow vsync: a callback requested mid-frame runs at the next
-/// frame boundary, not a whole frame after the request.
+/// frame boundary, not a whole frame after the request. On an idle page (no
+/// frame has run in the current interval) it runs at once in the current frame,
+/// stamped with that frame's start, as Chrome serves a missed begin-frame.
 const WINDOW_ANIMATION_FRAME_INTERVAL_MS: f64 = 1000.0 / 60.0;
 pub(crate) const TOP_WINDOW_MESSAGE_ENDPOINT_SLOT: &str = "__moliTopWindowMessageEndpoint";
 
@@ -778,12 +781,18 @@ pub(super) fn window_request_animation_frame_callback<'s>(
 
     let global = scope.get_current_context().global(scope);
     let now = current_animation_frame_time_ms(scope);
+    // A batch still to run joins this request, including one served at once in
+    // the current frame (its timestamp, the frame's start, is not after `now`).
+    let current_frame_start = current_animation_frame_start_ms(now);
     let target_timestamp =
         get_private_value(scope, global, WINDOW_PENDING_ANIMATION_FRAME_TIMESTAMP_SLOT)
             .and_then(|value| value.number_value(scope))
-            .filter(|timestamp| *timestamp > now)
+            .filter(|timestamp| *timestamp >= current_frame_start)
             .unwrap_or_else(|| {
-                let timestamp = next_animation_frame_time_ms(now);
+                let last_frame =
+                    get_private_value(scope, global, WINDOW_LAST_ANIMATION_FRAME_TIMESTAMP_SLOT)
+                        .and_then(|value| value.number_value(scope));
+                let timestamp = requested_animation_frame_time_ms(now, last_frame);
                 set_private_value(
                     scope,
                     global,
@@ -1965,6 +1974,18 @@ pub(crate) fn finish_animation_frame_callback_batch(
     timestamp: f64,
 ) {
     let global = scope.get_current_context().global(scope);
+    // The frame that ran last: a request in the same interval waits for the next
+    // boundary instead of being served at once.
+    let last_frame = get_private_value(scope, global, WINDOW_LAST_ANIMATION_FRAME_TIMESTAMP_SLOT)
+        .and_then(|value| value.number_value(scope));
+    if last_frame.is_none_or(|last| last < timestamp) {
+        set_private_value(
+            scope,
+            global,
+            WINDOW_LAST_ANIMATION_FRAME_TIMESTAMP_SLOT,
+            v8::Number::new(scope, timestamp).into(),
+        );
+    }
     let pending_timestamp =
         get_private_value(scope, global, WINDOW_PENDING_ANIMATION_FRAME_TIMESTAMP_SLOT)
             .and_then(|value| value.number_value(scope));
@@ -2062,9 +2083,23 @@ pub(crate) fn current_time_ms() -> f64 {
         * 1000.0
 }
 
-/// The first frame boundary strictly after `now`, on the 60 Hz grid.
-fn next_animation_frame_time_ms(now: f64) -> f64 {
-    ((now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor() + 1.0) * WINDOW_ANIMATION_FRAME_INTERVAL_MS
+/// The start of the 60 Hz frame `now` falls in.
+fn current_animation_frame_start_ms(now: f64) -> f64 {
+    (now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor() * WINDOW_ANIMATION_FRAME_INTERVAL_MS
+}
+
+/// The frame a callback requested at `now` runs in. When no frame has run in
+/// the current interval the page is idle, and Chrome serves the request at once
+/// with a missed begin-frame stamped with the latest vsync: here, the current
+/// frame's start. Otherwise it waits for the first boundary after `now`.
+fn requested_animation_frame_time_ms(now: f64, last_frame: Option<f64>) -> f64 {
+    let frame_index = (now / WINDOW_ANIMATION_FRAME_INTERVAL_MS).floor();
+    let current_frame_start = frame_index * WINDOW_ANIMATION_FRAME_INTERVAL_MS;
+    if last_frame.is_some_and(|last| last >= current_frame_start) {
+        (frame_index + 1.0) * WINDOW_ANIMATION_FRAME_INTERVAL_MS
+    } else {
+        current_frame_start
+    }
 }
 
 fn current_animation_frame_time_ms(scope: &mut v8::PinScope<'_, '_>) -> f64 {
