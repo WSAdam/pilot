@@ -21,13 +21,28 @@ export const pilotBin = process.env.PILOT_BIN ?? resolve(here, '../../target/deb
  */
 export const noWindowEnv = { ...process.env, PILOT_NO_WINDOW: '1' };
 
+/** Content types by file extension; anything else is served as HTML. */
+const fixtureContentTypes = {
+  '.png': 'image/png',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+};
+
+/**
+ * Serves pilot/conformance/fixtures. A request whose query has `cors` is
+ * answered with `access-control-allow-origin: *`, so a page on another
+ * fixture server (another origin) may fetch it in CORS mode.
+ */
 export async function startFixtureServer() {
   const server = createServer(async (request, response) => {
     try {
-      const path = new URL(request.url, 'http://fixture').pathname;
+      const url = new URL(request.url, 'http://fixture');
+      const path = url.pathname;
       const body = await readFile(join(here, 'fixtures', path));
-      const type = path.endsWith('.png') ? 'image/png' : 'text/html; charset=utf-8';
-      response.writeHead(200, { 'content-type': type });
+      const extension = path.slice(path.lastIndexOf('.'));
+      const headers = { 'content-type': fixtureContentTypes[extension] ?? 'text/html; charset=utf-8' };
+      if (url.searchParams.has('cors')) headers['access-control-allow-origin'] = '*';
+      response.writeHead(200, headers);
       response.end(body);
     } catch {
       response.writeHead(404);
