@@ -1071,6 +1071,86 @@ async fn runtime_enable_events_report_main_worlds_with_an_empty_name() {
         .await
         .expect("main-world name test page should close");
 }
+// 2026-11-18: an isolated world handed V8's inspector an empty origin and an
+// auxData carrying grantUniversalAccess; Chrome's isolated world reports the
+// origin of its frame's Document and only isDefault, type and frameId.
+#[tokio::test(flavor = "multi_thread")]
+async fn runtime_enable_events_report_isolated_worlds_with_their_document_origin() {
+    let runtime = JsRuntime::initialize();
+    let loader =
+        ResourceRequestClient::new(&moli_fetch::FetchConfig::default()).expect("default loader");
+    let page_url = url::Url::parse("https://example.test/runtime-enable-isolated-world-origin")
+        .expect("test url");
+    let root_frame_id = "TID-runtime-enable-isolated-world-origin";
+
+    let (mut page, _, _, _creation_artifacts, pending_download) = runtime
+        .create_html_page_from_response(
+            page_url.clone(),
+            page_url,
+            None,
+            false,
+            0,
+            200,
+            vec![("content-type".to_owned(), b"text/html".to_vec())],
+            &loader,
+            crate::RendererWebStorageHandles::ephemeral(),
+            "<!doctype html><body>isolated world origin</body>".to_owned(),
+            crate::RendererDocumentOptions {
+                root_frame_id: Some(root_frame_id.to_owned()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("isolated-world origin test page should load");
+    assert!(pending_download.is_none());
+
+    let mut world_context_ids = Vec::new();
+    for (name, grant_universal_access) in [
+        ("isolated-origin-world", false),
+        ("universal-origin-world", true),
+    ] {
+        let (reply, _) = page
+            .run_async_command(RendererPageCommand::CreateIsolatedWorld {
+                name: name.to_owned(),
+                grant_universal_access,
+                frame_id: None,
+            })
+            .await
+            .expect("isolated world should be created");
+        let RendererPageReply::ExecutionContextId(execution_context_id) = reply else {
+            panic!("expected CreateIsolatedWorld to return an execution context id");
+        };
+        world_context_ids.push(execution_context_id);
+    }
+
+    let events = runtime_enable_events_for_test(&page)
+        .await
+        .expect("Runtime.enable replay should run");
+    for world_context_id in world_context_ids {
+        let world =
+            runtime_execution_context_by_id(&events, world_context_id).unwrap_or_else(|| {
+                panic!("Runtime.enable should replay isolated world {world_context_id}: {events:?}")
+            });
+        assert_eq!(
+            world["origin"],
+            serde_json::json!("https://example.test"),
+            "an isolated world carries its Document's origin, as in Chrome: {world:?}"
+        );
+        assert_eq!(
+            world["auxData"],
+            serde_json::json!({
+                "isDefault": false,
+                "type": "isolated",
+                "frameId": root_frame_id,
+            }),
+            "an isolated world's auxData is isDefault, type and frameId only, as in Chrome: {world:?}"
+        );
+    }
+
+    page.close_async()
+        .await
+        .expect("isolated-world origin test page should close");
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn set_runtime_binding_state_updates_renderer_inspector_session_store() {
     let runtime = JsRuntime::initialize();

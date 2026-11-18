@@ -510,7 +510,10 @@ async fn add_script_to_evaluate_on_new_document_run_immediately_world_name_creat
     let created = ctx.take_one();
     assert_eq!(created["method"], "Runtime.executionContextCreated");
     assert_eq!(created["params"]["context"]["name"], "utility");
-    assert_eq!(created["params"]["context"]["origin"], "");
+    // 2026-11-18: an isolated world carries its Document's origin, as in
+    // Chrome; a data: Document's is opaque, which Chrome 1223 reports as "://"
+    // (was "").
+    assert_eq!(created["params"]["context"]["origin"], "://");
     assert_eq!(created["params"]["context"]["auxData"]["isDefault"], false);
     assert_eq!(created["params"]["context"]["auxData"]["frameId"], "TID-1");
     assert!(
@@ -1461,9 +1464,15 @@ async fn create_isolated_world_accepts_cdp_and_corrected_grant_universal_access_
     }))
     .await;
     let created = ctx.take_one();
+    // 2026-11-18: Chrome's auxData never carries grantUniversalAccess, so the
+    // renderer's realm inventory shows the grant reached the world.
     assert_eq!(
-        created["params"]["context"]["auxData"]["grantUniversalAccess"],
-        true
+        created["params"]["context"]["auxData"].get("grantUniversalAccess"),
+        None
+    );
+    assert_eq!(
+        fixture_isolated_world_grant(&mut ctx, "SID-1", "cdp-spelling").await,
+        Some(true)
     );
     ctx.expect_result(
         48,
@@ -1486,8 +1495,12 @@ async fn create_isolated_world_accepts_cdp_and_corrected_grant_universal_access_
     .await;
     let created = ctx.take_one();
     assert_eq!(
-        created["params"]["context"]["auxData"]["grantUniversalAccess"],
-        true
+        created["params"]["context"]["auxData"].get("grantUniversalAccess"),
+        None
+    );
+    assert_eq!(
+        fixture_isolated_world_grant(&mut ctx, "SID-1", "corrected-spelling").await,
+        Some(true)
     );
     ctx.expect_result(
         49,
@@ -1538,10 +1551,13 @@ async fn create_isolated_world_returns_unique_context_ids_and_emits_runtime_even
     assert_eq!(created["method"], "Runtime.executionContextCreated");
     assert_eq!(created["sessionId"], "SID-1");
     assert_eq!(created["params"]["context"]["name"], "utility");
-    assert_eq!(created["params"]["context"]["origin"], "");
-    assert_eq!(created["params"]["context"]["auxData"]["isDefault"], false);
-    assert_eq!(created["params"]["context"]["auxData"]["type"], "isolated");
-    assert_eq!(created["params"]["context"]["auxData"]["frameId"], "TID-1");
+    // 2026-11-18: the data: Document's opaque origin, as Chrome 1223 reports
+    // it (was ""), and an auxData of isDefault, type and frameId only.
+    assert_eq!(created["params"]["context"]["origin"], "://");
+    assert_eq!(
+        created["params"]["context"]["auxData"],
+        json!({"isDefault": false, "type": "isolated", "frameId": "TID-1"})
+    );
     assert!(
         created["params"]["context"]["uniqueId"].as_str().is_some(),
         "Page.createIsolatedWorld Runtime event should come from V8 native batch: {created:?}"
@@ -1581,9 +1597,15 @@ async fn create_isolated_world_returns_unique_context_ids_and_emits_runtime_even
         "second Page.createIsolatedWorld Runtime event should come from V8 native batch: {created:?}"
     );
     assert_ne!(first_id, second_id);
+    // 2026-11-18: Chrome's auxData never carries grantUniversalAccess (was
+    // true here); the renderer's realm inventory holds the grant.
     assert_eq!(
-        created["params"]["context"]["auxData"]["grantUniversalAccess"],
-        true
+        created["params"]["context"]["auxData"],
+        json!({"isDefault": false, "type": "isolated", "frameId": "TID-1"})
+    );
+    assert_eq!(
+        fixture_isolated_world_grant(&mut ctx, "SID-1", "utility-2").await,
+        Some(true)
     );
     ctx.expect_result(
         43,
