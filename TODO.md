@@ -14,7 +14,7 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] pilot runs without a subcommand and ignores unknown Chromium switches (pilot/src/argv.rs)
 - [x] pilot maps --user-data-dir to the Moli profile dir and writes a SingletonLock symlink there
 - [x] pilot accepts --headless, --remote-debugging-port and --remote-debugging-address
-- [ ] pilot opens about:blank as the start page, or no page with --no-startup-window
+- [x] pilot opens about:blank as the start page, or no page with --no-startup-window
 - [x] pilot always runs with real layout on (Moli --layout)
 - [x] CDP over --remote-debugging-pipe: fd 3 in, fd 4 out, NUL-delimited JSON, exit on fd 3 EOF (pilot-core patch)
 - [x] Over the pipe, the start page is created at launch and auto-attached with waitingForDebugger
@@ -39,10 +39,10 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [ ] Headful window verified by hand while Playwright MCP drives pilot (needs live run)
 
 ## M4: MCP protocol gaps and Playwright suite pass rates
-- [ ] Emulation.setDeviceMetricsOverride with mobile:true works for MCP --device (#1291)
+- [x] Emulation.setDeviceMetricsOverride with mobile:true works for MCP --device (#1291)
 - [ ] JavaScript dialog events reach every attached CDP session, not only the opener (#2063)
 - [x] Full-page screenshots taller than 65,535 px succeed via tiling
-- [ ] Runtime.executionContextCreated auxData carries type default/isolated
+- [x] Runtime.executionContextCreated auxData carries type default/isolated
 - [ ] Fetch interception edge cases needed for MCP --allowed-origins pass (#280)
 - [x] Playwright tests/mcp pass rate against pilot recorded in compat/
 - [ ] Playwright chromium-page test pass rate against pilot (CRPATH) recorded in compat/
@@ -185,3 +185,4 @@ Work list for the pilot fork (see DECISIONS.md and FORK.md). One item per line; 
 - [x] Checked 2026-11-18: under Playwright's launch flags (--disable-hang-monitor) Chrome also waits out a busy beforeunload handler (goto 4.0 s after a 4 s loop, same-site and cross-site), and pilot matches it to the millisecond, so line 176 needs no change
 - [ ] A navigation a second CDP session starts while a beforeunload dialog is open is aborted when that dialog is dismissed (its Page.navigate answers errorText net::ERR_ABORTED and the page stays), as in Chrome; pilot runs it after the dismiss (corrects line 177, whose skip-the-dialog premise Chrome does not follow)
 - [ ] A navigation a second CDP session starts while a beforeunload dialog is open wins when that dialog is accepted (the first navigation is aborted with net::ERR_ABORTED and the second commits), as in Chrome; pilot hung with the page left "Loading" and neither navigation answered
+- [ ] The main world's Runtime.executionContextCreated has an empty name, as in Chrome; pilot names it after the document URL ("about:blank"), which Playwright ignores but raw CDP clients see

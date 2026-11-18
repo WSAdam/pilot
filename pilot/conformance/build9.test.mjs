@@ -178,3 +178,22 @@ test('a second session navigation behind an accepted beforeunload dialog wins', 
     assert.ok(answer?.loaderId && !answer.errorText, `second Page.navigate answered ${JSON.stringify(answer)}`);
     await page.waitForFunction(() => document.title === 'late button', null, { timeout: 5_000 });
   }));
+
+// 2026-11-18 guard (TODO line 45, already true on the Build 8 binary): each
+// Runtime.executionContextCreated carries Chrome's auxData, type "default"
+// with isDefault for the main world and type "isolated" for Playwright's
+// utility world, both with the frame's id.
+test('execution contexts carry auxData type default and isolated with the frame id', { timeout: 60_000 }, () =>
+  withPage(async (page, context) => {
+    const session = await context.newCDPSession(page);
+    const created = [];
+    session.on('Runtime.executionContextCreated', ({ context: execution }) => created.push(execution.auxData));
+    await session.send('Runtime.enable');
+    await page.setContent('<button>go</button>');
+    await page.getByRole('button').click();
+    await page.waitForTimeout(200);
+    const main = created.find((auxData) => auxData?.type === 'default');
+    const utility = created.find((auxData) => auxData?.type === 'isolated');
+    assert.ok(main?.isDefault === true && main.frameId, `contexts ${JSON.stringify(created)}`);
+    assert.ok(utility?.isDefault === false && utility.frameId === main.frameId, `contexts ${JSON.stringify(created)}`);
+  }));
