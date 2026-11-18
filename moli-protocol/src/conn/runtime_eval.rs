@@ -3,8 +3,9 @@ use anyhow::Result;
 use std::{collections::hash_map::Entry, future::Future, pin::Pin};
 
 use moli_page_types::{FrontendCommandId, RendererCallId, RendererInspectorResponseDelivery};
-use moli_protocol_cdp::CdpRendererCommandReplayDispatch;
+use moli_protocol_cdp::{CdpRendererCommandReplayDispatch, JsonSplice, raw_value_span};
 use moli_shared_worker::SharedWorkerInstanceId;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use crate::automation::{
@@ -127,7 +128,194 @@ impl RuntimeBindingCallEvent {
     }
 }
 
+/// pilot: the members of a Runtime Inspector command that the protocol
+/// rewrites on its way to the renderer (`id`, and `params.uniqueContextId` for
+/// a `method` that names its realm by it), read in one pass that skips every
+/// other value, a 346 KB `params.expression` among them, without copying it.
+#[derive(Default)]
+struct RuntimeInspectorCommandMembers<'a> {
+    id: Option<&'a RawValue>,
+    method: Option<Value>,
+    unique_context_id: Option<&'a RawValue>,
+    /// Whether `id`, `method`, `params` or `params.uniqueContextId` appears
+    /// twice; a parsed `Value` keeps only the last of each.
+    repeats_a_member: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for RuntimeInspectorCommandMembers<'de> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(RuntimeInspectorCommandMembersVisitor)
+    }
+}
+
+struct RuntimeInspectorCommandMembersVisitor;
+
+impl<'de> serde::de::Visitor<'de> for RuntimeInspectorCommandMembersVisitor {
+    type Value = RuntimeInspectorCommandMembers<'de>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a runtime Inspector command object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut members = RuntimeInspectorCommandMembers::default();
+        let (mut seen_id, mut seen_method, mut seen_params) = (false, false, false);
+        while let Some(key) = map.next_key::<String>()? {
+            let seen = match key.as_str() {
+                "id" => {
+                    members.id = Some(map.next_value::<&'de RawValue>()?);
+                    &mut seen_id
+                }
+                "method" => {
+                    members.method = Some(map.next_value::<Value>()?);
+                    &mut seen_method
+                }
+                "params" => {
+                    let params = map.next_value::<RuntimeInspectorCommandParamsMembers<'de>>()?;
+                    members.unique_context_id = params.unique_context_id;
+                    members.repeats_a_member |= params.repeats_unique_context_id;
+                    &mut seen_params
+                }
+                _ => {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                    continue;
+                }
+            };
+            members.repeats_a_member |= std::mem::replace(seen, true);
+        }
+        Ok(members)
+    }
+}
+
+#[derive(Default)]
+struct RuntimeInspectorCommandParamsMembers<'a> {
+    unique_context_id: Option<&'a RawValue>,
+    repeats_unique_context_id: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for RuntimeInspectorCommandParamsMembers<'de> {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(RuntimeInspectorCommandParamsMembersVisitor)
+    }
+}
+
+struct RuntimeInspectorCommandParamsMembersVisitor;
+
+impl<'de> serde::de::Visitor<'de> for RuntimeInspectorCommandParamsMembersVisitor {
+    type Value = RuntimeInspectorCommandParamsMembers<'de>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("runtime Inspector command params")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut params = RuntimeInspectorCommandParamsMembers::default();
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "uniqueContextId" {
+                params.repeats_unique_context_id |= params.unique_context_id.is_some();
+                params.unique_context_id = Some(map.next_value::<&'de RawValue>()?);
+            } else {
+                map.next_value::<serde::de::IgnoredAny>()?;
+            }
+        }
+        Ok(params)
+    }
+}
+
+/// Rewrites a Runtime Inspector command for the renderer: its frontend `id`
+/// becomes the renderer call id, and a `uniqueContextId` qualified with the
+/// owning target loses that qualification.
+///
+/// pilot: the command's text is kept byte for byte apart from those members,
+/// read by one scan that skips the rest, so a 346 KB Runtime.evaluate is
+/// neither parsed into a `Value` nor encoded again. A command the scan does
+/// not cover (not a JSON object, `params` that are not an object, a repeated
+/// member) goes through a `Value` as upstream did, with the same result.
 fn rewrite_runtime_inspector_command_for_renderer(
+    raw_json: &str,
+    command_id_rewrite: Option<(FrontendCommandId, RendererCallId)>,
+    owner_target_id: Option<&str>,
+) -> Result<String> {
+    let through_value = || {
+        rewrite_runtime_inspector_command_through_value(
+            raw_json,
+            command_id_rewrite,
+            owner_target_id,
+        )
+    };
+    let Ok(members) = serde_json::from_str::<RuntimeInspectorCommandMembers<'_>>(raw_json) else {
+        return through_value();
+    };
+    if members.repeats_a_member {
+        return through_value();
+    }
+    let mut splice = JsonSplice::new(raw_json);
+
+    if let Some((frontend_command_id, renderer_call_id)) = command_id_rewrite {
+        let wire_command_id = members
+            .id
+            .and_then(|id| serde_json::from_str::<Value>(id.get()).ok());
+        if wire_command_id.as_ref().and_then(Value::as_u64) != Some(frontend_command_id.get()) {
+            return Err(RuntimeInspectorError::CommandIdMismatch {
+                expected: frontend_command_id.get(),
+                actual: wire_command_id
+                    .as_ref()
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "missing".to_owned()),
+            }
+            .into());
+        }
+        let Some(id) = members.id.and_then(|id| raw_value_span(raw_json, id)) else {
+            return through_value();
+        };
+        splice.replace(id, json!(renderer_call_id.get()).to_string());
+    }
+
+    let targets_realm_by_unique_id = matches!(
+        members.method.as_ref().and_then(Value::as_str),
+        Some("Runtime.evaluate" | "Runtime.callFunctionOn")
+    );
+    // External realm ids are target-qualified because native V8 unique ids are
+    // only unique inside one renderer runtime. V8 Inspector accepts only the
+    // native suffix, so undo the qualification at the owning renderer boundary.
+    // An id owned by another target intentionally remains unmodified and V8
+    // rejects it as an invalid uniqueContextId.
+    let owner_prefix = owner_target_id.map(|owner_target_id| format!("{owner_target_id}:"));
+    if targets_realm_by_unique_id
+        && let Some(owner_prefix) = owner_prefix.as_deref()
+        && let Some(raw_unique_context_id) = members.unique_context_id
+        && let Ok(Value::String(unique_context_id)) =
+            serde_json::from_str::<Value>(raw_unique_context_id.get())
+        && let Some(native_realm_id) = unique_context_id.strip_prefix(owner_prefix)
+        && !native_realm_id.is_empty()
+    {
+        let Some(span) = raw_value_span(raw_json, raw_unique_context_id) else {
+            return through_value();
+        };
+        splice.replace(span, Value::from(native_realm_id).to_string());
+    }
+
+    match splice.finish() {
+        Some(rewritten) => Ok(rewritten),
+        None => through_value(),
+    }
+}
+
+/// The upstream rewrite: parse the whole command into a `Value`, change its
+/// members and serialize it again.
+fn rewrite_runtime_inspector_command_through_value(
     raw_json: &str,
     command_id_rewrite: Option<(FrontendCommandId, RendererCallId)>,
     owner_target_id: Option<&str>,

@@ -1,6 +1,10 @@
+use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
+
+use crate::json_splice::{JsonSplice, raw_value_span};
 
 /// Chromium accepts any integer command id, and Playwright closes a browser it
 /// launched with id -9999. Command ids are carried as `u64`; a negative id keeps
@@ -243,6 +247,101 @@ impl CdpRequest {
     }
 }
 
+/// pilot: the top-level members of a command's JSON text that frontend
+/// routing rewrites, read in one pass that skips every other value (the
+/// `params`, a 346 KB expression among them) without copying it. Members
+/// nested in `params` are never read, since only top-level keys are visited.
+struct FrontendRouteMembers<'a> {
+    id: Option<&'a RawValue>,
+    session_id: Option<&'a RawValue>,
+    has_params: bool,
+    /// Whether some top-level key appears twice, which the typed request
+    /// holds once.
+    repeats_a_member: bool,
+}
+
+impl<'de> Deserialize<'de> for FrontendRouteMembers<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(FrontendRouteMembersVisitor)
+    }
+}
+
+struct FrontendRouteMembersVisitor;
+
+impl<'de> Visitor<'de> for FrontendRouteMembersVisitor {
+    type Value = FrontendRouteMembers<'de>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a CDP command object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut members = FrontendRouteMembers {
+            id: None,
+            session_id: None,
+            has_params: false,
+            repeats_a_member: false,
+        };
+        let mut keys = Vec::<String>::new();
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "id" => members.id = Some(map.next_value::<&'de RawValue>()?),
+                "sessionId" => members.session_id = Some(map.next_value::<&'de RawValue>()?),
+                "params" => {
+                    members.has_params = true;
+                    map.next_value::<IgnoredAny>()?;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            if keys.contains(&key) {
+                members.repeats_a_member = true;
+            } else {
+                keys.push(key);
+            }
+        }
+        Ok(members)
+    }
+}
+
+/// The JSON of `request` made from `json`, the text it was parsed from, by
+/// replacing the bytes of its `id` and `sessionId` members, or `None` when the
+/// text cannot become exactly the request that way.
+fn frontend_route_spliced_json(json: &str, request: &CdpRequest) -> Option<String> {
+    let members = serde_json::from_str::<FrontendRouteMembers<'_>>(json).ok()?;
+    if members.repeats_a_member || (members.has_params && request.params().is_none()) {
+        return None;
+    }
+    let id = raw_value_span(json, members.id?)?;
+    let mut splice = JsonSplice::new(json);
+    splice.replace(
+        id.clone(),
+        client_command_id_value(request.id()).to_string(),
+    );
+    match (request.session_id(), members.session_id) {
+        (Some(session_id), Some(present)) => {
+            splice.replace(
+                raw_value_span(json, present)?,
+                serde_json::to_string(session_id).ok()?,
+            );
+        }
+        (Some(session_id), None) => {
+            let session_id = serde_json::to_string(session_id).ok()?;
+            splice.insert(id.end, format!(r#","sessionId":{session_id}"#));
+        }
+        (None, Some(_)) => return None,
+        (None, None) => {}
+    }
+    splice.finish()
+}
+
 /// Renderer access required by one parsed CDP command.
 ///
 /// Chromium physically separates renderer main-thread and IO
@@ -419,6 +518,13 @@ impl ParsedCdpCommand {
     /// Consume this validated command and rewrite only the frontend routing
     /// fields. Unknown top-level fields remain in the flattened extension map;
     /// the validated method and params remain in their typed fields.
+    ///
+    /// pilot: the JSON keeps the command's own text with only `id` and
+    /// `sessionId` replaced, so a 346 KB Runtime.evaluate is not encoded
+    /// again. A command the text splice cannot express exactly as the typed
+    /// request (a repeated top-level member, `params` the request dropped, a
+    /// `sessionId` to remove) is serialized from the request, as upstream
+    /// serialized every command.
     pub fn rewrite_frontend_route(
         mut self,
         internal_command_id: u64,
@@ -426,7 +532,10 @@ impl ParsedCdpCommand {
     ) -> serde_json::Result<Self> {
         self.request
             .rewrite_frontend_route(internal_command_id, dispatch_session_id);
-        self.json = serde_json::to_string(&self.request)?;
+        self.json = match frontend_route_spliced_json(&self.json, &self.request) {
+            Some(json) => json,
+            None => serde_json::to_string(&self.request)?,
+        };
         Ok(self)
     }
 
@@ -1111,6 +1220,120 @@ mod tests {
                 })
             );
         }
+    }
+
+    /// The JSON string literal of an expression the size of Playwright's
+    /// injected script, full of escapes, some of which (`\u0041`, `\/`)
+    /// serde_json would write differently if it encoded the string again, and
+    /// of text shaped like a command's own `id` and `sessionId` members.
+    fn injected_script_sized_expression_literal() -> String {
+        let unit = r#"if (a) { b(\"{\\\"id\\\": 1, \\\"sessionId\\\": 2}\", 'c\\d'); } \u0041\/\n"#;
+        let literal = format!("\"{}\"", unit.repeat(5_000));
+        assert!(literal.len() > 340_000, "{}", literal.len());
+        literal
+    }
+
+    // 2026-11-18: frontend routing serialized every command again to rewrite
+    // its id and sessionId, re-encoding a 346 KB Runtime.evaluate expression.
+    // The routed JSON keeps the command's text byte for byte apart from those
+    // two members: the escapes serde_json would rewrite and the id members
+    // nested in params are untouched.
+    #[test]
+    fn frontend_route_rewrites_a_large_evaluate_without_encoding_its_params_again() {
+        let params = format!(
+            r#"{{"expression":{},"contextId":3,"probe":{{"id":5,"sessionId":"nested"}}}}"#,
+            injected_script_sized_expression_literal()
+        );
+        let raw = format!(
+            r#"{{"id":7,"method":"Runtime.evaluate","params":{params},"sessionId":"client-session"}}"#
+        );
+        let command = parse(raw)
+            .rewrite_frontend_route(91, Some("dispatch-session"))
+            .expect("frontend route rewrite must succeed");
+
+        assert_eq!(command.request().id(), 91);
+        assert_eq!(command.session_id(), Some("dispatch-session"));
+        assert!(
+            command.json()
+                == format!(
+                    r#"{{"id":91,"method":"Runtime.evaluate","params":{params},"sessionId":"dispatch-session"}}"#
+                ),
+            "routed JSON must keep the command's text apart from id and sessionId: {}",
+            &command.json()[..200]
+        );
+    }
+
+    #[test]
+    fn frontend_route_inserts_a_session_id_after_the_spliced_id() {
+        let command =
+            parse(r#"{ "id" : 14 , "method":"Runtime.evaluate","params":{"expression":"\u0041"}}"#)
+                .rewrite_frontend_route(91, Some("SID-\"quoted\""))
+                .expect("frontend route rewrite must succeed");
+
+        assert_eq!(
+            command.json(),
+            r#"{ "id" : 91,"sessionId":"SID-\"quoted\"" , "method":"Runtime.evaluate","params":{"expression":"\u0041"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(command.json()).expect("routed JSON"),
+            serde_json::json!({
+                "id": 91,
+                "sessionId": "SID-\"quoted\"",
+                "method": "Runtime.evaluate",
+                "params": {"expression": "A"},
+            })
+        );
+    }
+
+    #[test]
+    fn frontend_route_splices_an_id_whose_key_is_escaped_and_keeps_a_negative_id() {
+        let command = parse(r#"{"\u0069d":14,"method":"Runtime.enable"}"#)
+            .rewrite_frontend_route(91, None)
+            .expect("frontend route rewrite must succeed");
+        assert_eq!(
+            command.json(),
+            r#"{"\u0069d":91,"method":"Runtime.enable"}"#
+        );
+
+        let command = parse(r#"{"id":-9999,"method":"Browser.close"}"#)
+            .rewrite_frontend_route(u64::MAX - 9998, None)
+            .expect("frontend route rewrite must succeed");
+        assert_eq!(command.json(), r#"{"id":-9999,"method":"Browser.close"}"#);
+    }
+
+    // The splice cannot remove a member or collapse a repeated one, so those
+    // commands are serialized from the typed request, as before.
+    #[test]
+    fn frontend_route_serializes_commands_the_splice_cannot_express() {
+        let without_session = parse(
+            r#"{"id":14,"method":"Runtime.evaluate","params":{"expression":"\u0041"},"sessionId":"client-session"}"#,
+        )
+        .rewrite_frontend_route(91, None)
+        .expect("frontend route rewrite must serialize");
+        assert_eq!(
+            serde_json::from_str::<Value>(without_session.json()).expect("routed JSON"),
+            serde_json::json!({
+                "id": 91,
+                "method": "Runtime.evaluate",
+                "params": {"expression": "A"},
+            })
+        );
+
+        let repeated = parse(r#"{"id":14,"method":"Runtime.enable","x":1,"x":2}"#)
+            .rewrite_frontend_route(91, None)
+            .expect("frontend route rewrite must serialize");
+        assert_eq!(
+            serde_json::from_str::<Value>(repeated.json()).expect("routed JSON"),
+            serde_json::json!({"id": 91, "method": "Runtime.enable", "x": 2})
+        );
+
+        let closing = parse(r#"{"id":15,"method":"Browser.close","params":{"ignored":true}}"#)
+            .rewrite_frontend_route(92, None)
+            .expect("frontend route rewrite must serialize");
+        assert_eq!(
+            serde_json::from_str::<Value>(closing.json()).expect("routed JSON"),
+            serde_json::json!({"id": 92, "method": "Browser.close"})
+        );
     }
 
     #[test]
