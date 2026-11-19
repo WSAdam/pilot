@@ -3157,9 +3157,13 @@ async fn dynamic_module_tla_exotic_rejection_reports_window_error_payload_withou
         diagnostic_global(&page, "dynamicModuleTlaPayloadContinuation"),
         Some(&JsValueSnapshot::Bool(true))
     );
+    // 2026-11-19: the requirement changed. The error event carries the value
+    // the top-level await rejected with (here Object.create(null), which has
+    // no message), as Chromium 1223 does; Moli carried a stand-in Error with
+    // "NativeEsmEvaluateFailed" text. The filename stays the document's URL.
     assert_eq!(
         diagnostic_global(&page, "dynamicModuleTlaPayloadErrorMessageMatches"),
-        Some(&JsValueSnapshot::Bool(true))
+        Some(&JsValueSnapshot::Bool(false))
     );
     assert_eq!(
         diagnostic_global(&page, "dynamicModuleTlaPayloadFilenameMatches"),
@@ -3848,9 +3852,13 @@ async fn parser_owned_module_tla_exotic_rejection_reports_window_error_payload_w
         diagnostic_global(&page, "parserOwnedModuleTlaPayloadContinuation"),
         Some(&JsValueSnapshot::Bool(true))
     );
+    // 2026-11-19: the requirement changed, as in
+    // dynamic_module_tla_exotic_rejection_reports_window_error_payload_without_aborting_later_module:
+    // the event's error is the rejection value itself, with no message, as in
+    // Chromium 1223.
     assert_eq!(
         diagnostic_global(&page, "parserOwnedModuleTlaPayloadErrorMessageMatches"),
-        Some(&JsValueSnapshot::Bool(true))
+        Some(&JsValueSnapshot::Bool(false))
     );
     assert_eq!(
         diagnostic_global(&page, "parserOwnedModuleTlaPayloadFilenameMatches"),

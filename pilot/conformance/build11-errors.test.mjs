@@ -102,6 +102,32 @@ test('a thrown value with no stack of its own reaches Runtime.exceptionThrown as
   }
 });
 
+// 2026-11-19 (Build 11's first gate run): a module script reports its own
+// exception with V8's message for the value (error.rs
+// report_exception_to_window). For a value with no location of its own that
+// message has no script, so the error event's filename was empty and
+// Runtime.exceptionThrown had no url. Chrome reports the document's URL, as
+// Blink's CaptureSourceLocation falls back to the execution context's URL.
+test('a module script\'s value with no location of its own is reported at the document URL', { timeout: 60_000 }, async () => {
+  const { context, page, exceptions } = await openErrorRecordingPage();
+  try {
+    const url = `${fixture.baseUrl}/module-values.html`;
+    await page.goto(url);
+    await page.waitForFunction(() => window.errorEvents.length >= 2, null, { timeout: 5_000 }).catch(() => {});
+    await waitUntil(() => exceptions.length >= 2, 5_000);
+    assert.deepEqual(await page.evaluate(() => window.errorEvents), [
+      { filename: url, lineno: 0, colno: 0, error: 'string' },
+      { filename: url, lineno: 0, colno: 0, error: 'object' },
+    ]);
+    assert.deepEqual(exceptions.map((details) => ({ url: details.url, lineNumber: details.lineNumber, columnNumber: details.columnNumber })), [
+      { url, lineNumber: 0, columnNumber: 0 },
+      { url, lineNumber: 0, columnNumber: 0 },
+    ], `raw CDP ${JSON.stringify(exceptions, null, 1)}`);
+  } finally {
+    await context.close();
+  }
+});
+
 // 2026-11-18: an uncaught exception of a module script's evaluation became
 // a ModuleLoadError carrying only its text (module_graph.rs
 // evaluate_native_module_graph_with_owner_in_context), wrapped as
