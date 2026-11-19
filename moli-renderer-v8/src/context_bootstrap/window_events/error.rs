@@ -94,22 +94,37 @@ fn reported_exception_details<'s>(
         .checked_add(1)
         .and_then(|column| u32::try_from(column).ok())
         .unwrap_or(0);
-    // pilot: a value with no location of its own (a string a module script
-    // threw, the reason its top-level await rejected with) gets a message
-    // with no script, no line and no stack, because no page code is running
-    // when the module script reports it. Blink's CaptureSourceLocation then
-    // uses the execution context's URL, with line and column 0, and so does
-    // Runtime.exceptionThrown. Without this the filename was empty and the
-    // event had no url (moli-core tests *_tla_exotic_rejection_*).
-    let has_location = !filename.is_empty()
-        || lineno != 0
-        || exception_message
+    // pilot: no page code is running when a module script reports its
+    // evaluation's exception, so V8's message for it has no script and no
+    // line. Blink's CaptureSourceLocation then takes the top frame of the
+    // message's stack: for an Error, where it was created (Build 11's second
+    // gate run, build11-errors "a module script's Error is reported at the
+    // top frame of its stack"). A value with no location of its own (a string
+    // a module script threw, the reason its top-level await rejected with)
+    // has no stack either, and Blink uses the execution context's URL, with
+    // line and column 0; so does Runtime.exceptionThrown. Without this the
+    // filename was empty and the event had no url (moli-core tests
+    // *_tla_exotic_rejection_*).
+    let stack_top_frame = if lineno == 0 {
+        exception_message
             .get_stack_trace(scope)
-            .is_some_and(|stack_trace| stack_trace.get_frame_count() > 0);
-    let (filename, colno) = if has_location {
-        (filename, colno)
+            .filter(|stack_trace| stack_trace.get_frame_count() > 0)
+            .and_then(|stack_trace| stack_trace.get_frame(scope, 0))
     } else {
-        (current_realm_document_url(scope, host_ptr), 0)
+        None
+    };
+    let (filename, lineno, colno) = if let Some(frame) = stack_top_frame {
+        let frame_url = frame
+            .get_script_name_or_source_url(scope)
+            .map(|name| name.to_rust_string_lossy(scope))
+            .unwrap_or_default();
+        let frame_lineno = u32::try_from(frame.get_line_number()).unwrap_or(0);
+        let frame_colno = u32::try_from(frame.get_column()).unwrap_or(0);
+        (frame_url, frame_lineno, frame_colno)
+    } else if filename.is_empty() && lineno == 0 {
+        (current_realm_document_url(scope, host_ptr), 0, 0)
+    } else {
+        (filename, lineno, colno)
     };
     let throw_site = crate::exception_reporting::ExceptionThrowSite::from_message(
         scope,
