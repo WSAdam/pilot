@@ -8,7 +8,7 @@
   window.errorEvents = [];
   window.moduleLoads = [];
   addEventListener('error', (event) => {
-    errorEvents.push({ message: event.message, filename: event.filename, error: event.error });
+    errorEvents.push({ message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno, error: event.error });
   });
 </script>
 <script type="module">throw (window.thrown['module at load'] = new Error('module at load'));</script>

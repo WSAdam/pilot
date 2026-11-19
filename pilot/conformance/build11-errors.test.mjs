@@ -177,6 +177,36 @@ test('an uncaught error thrown by a module script is reported as the module\'s o
   }
 });
 
+// 2026-11-19: Build 11's second gate run (44559154841) found a module
+// script's Error reported with an empty filename, line 0 and column 0, and
+// Runtime.exceptionThrown with no url. The V8 message made for the Error
+// after the module's evaluation has no script and no line, only the stack
+// the Error was created with. Blink's CaptureSourceLocation then reports the
+// top frame of that stack; pilot reported the empty message location
+// (window_events/error.rs reported_exception_details).
+test('a module script\'s Error is reported at the top frame of its stack', { timeout: 60_000 }, async () => {
+  const { context, page, exceptions } = await openErrorRecordingPage();
+  try {
+    await page.goto(`${fixture.baseUrl}/module-errors.html`);
+    await page.waitForFunction(() => window.errorEvents.length >= 2, null, { timeout: 5_000 }).catch(() => {});
+    await waitUntil(() => exceptions.length >= 2, 5_000);
+    const documentUrl = `${fixture.baseUrl}/module-errors.html`;
+    const externalUrl = `${fixture.baseUrl}/module-throws.mjs`;
+    const errorEvents = await page.evaluate(() => window.errorEvents.map(({ filename, lineno, colno }) => ({ filename, lineno, colno })));
+    const raw = `raw CDP ${JSON.stringify(exceptions, null, 1)}`;
+    // The inline module's line and column wait on its compile offsets (TODO
+    // line 217), so only its file is checked here: the document.
+    assert.deepEqual(errorEvents.map(({ filename }) => filename), [documentUrl, externalUrl]);
+    assert.deepEqual(exceptions.map(({ url }) => url), [documentUrl, externalUrl], raw);
+    // `new Error` starts at line 2, column 51 of module-throws.mjs; DevTools
+    // counts from 0.
+    assert.deepEqual(errorEvents[1], { filename: externalUrl, lineno: 2, colno: 51 });
+    assert.deepEqual({ lineNumber: exceptions[1]?.lineNumber, columnNumber: exceptions[1]?.columnNumber }, { lineNumber: 1, columnNumber: 50 }, raw);
+  } finally {
+    await context.close();
+  }
+});
+
 // 2026-11-18: Moli compiled every classic script the same way, and since
 // Build 10 shared cross-origin (util.rs PAGE_SCRIPT_IS_SHARED_CROSS_ORIGIN),
 // so a script fetched cross-origin without CORS reported its errors in full.
