@@ -88,14 +88,32 @@ jobs:
       - name: nextest
         id: nextest
         continue-on-error: true
+        # Pre-check run 44532437481's runner stopped answering 54 minutes into
+        # this step and its whole log was lost, which sent a failure email:
+        # continue-on-error can't cover a runner that dies. So this step
+        # compiles one crate at a time (two renderer rustc processes take
+        # 12-14 GB of the 16 GB runner), the precheck nextest profile ends a
+        # test after 10 minutes, the step itself stops at 150 minutes, and
+        # free memory is logged every 2 minutes.
+        timeout-minutes: 150
+        env:
+          CARGO_BUILD_JOBS: "1"
         # The whole workspace, as the gate builds it: a narrower build unifies
         # features differently and missed Build 8's stack overflow.
-        run: /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
+        run: |
+          set +e
+          ( while sleep 120; do echo "🔍 memory: $(free -m | awk '/^Mem:/ {printf "%s MB available", $7} /^Swap:/ {printf ", %s MB swap used", $3}')"; done ) &
+          memory_logger=$!
+          /usr/bin/time -v cargo nextest run --workspace --profile precheck -E 'not binary(fetch_cli)'
+          status=$?
+          kill "$memory_logger"
+          exit "$status"
 
       - name: nextest (moli fetch CLI, one test at a time)
         id: fetch_cli
         continue-on-error: true
-        run: cargo nextest run --workspace --profile ci -E 'binary(fetch_cli)' --test-threads 1
+        timeout-minutes: 30
+        run: cargo nextest run --workspace --profile precheck -E 'binary(fetch_cli)' --test-threads 1
 
       - name: Report
         if: always()

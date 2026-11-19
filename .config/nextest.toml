@@ -4,3 +4,16 @@ retries = 2
 status-level = "retry"
 final-status-level = "flaky"
 success-output = "never"       
+
+# pilot: the pre-check (pilot-precheck.yml). The ci profile, plus a time
+# limit per test: a test still running after 10 minutes is ended and named
+# instead of holding the runner. Pre-check run 44532437481's runner stopped
+# answering 54 minutes into nextest and its log was lost, so the hung test,
+# if there was one, could not be named.
+[profile.precheck]
+fail-fast = false
+retries = 2
+status-level = "retry"
+final-status-level = "flaky"
+success-output = "never"
+slow-timeout = { period = "120s", terminate-after = 5 }
