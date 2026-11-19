@@ -8,82 +8,82 @@
     {
       "flow": "log in and out (form authentication)",
       "ok": true,
-      "ms": 3467
+      "ms": 3297
     },
     {
       "flow": "a wrong password is refused",
       "ok": true,
-      "ms": 2035
+      "ms": 1394
     },
     {
       "flow": "check and uncheck checkboxes",
       "ok": true,
-      "ms": 2356
+      "ms": 2333
     },
     {
       "flow": "pick from a dropdown",
       "ok": true,
-      "ms": 1807
+      "ms": 933
     },
     {
       "flow": "accept a JavaScript alert",
       "ok": true,
-      "ms": 1373
+      "ms": 1301
     },
     {
       "flow": "dismiss a confirm",
       "ok": true,
-      "ms": 1438
+      "ms": 1368
     },
     {
       "flow": "answer a prompt",
       "ok": true,
-      "ms": 1829
+      "ms": 1364
     },
     {
       "flow": "wait for content loaded after a delay",
       "ok": true,
-      "ms": 6425
+      "ms": 5899
     },
     {
       "flow": "enable a disabled input and type in it",
       "ok": true,
-      "ms": 4962
+      "ms": 4478
     },
     {
       "flow": "add and remove elements",
       "ok": true,
-      "ms": 3085
+      "ms": 3039
     },
     {
       "flow": "upload a file",
       "ok": true,
-      "ms": 3398
+      "ms": 2522
     },
     {
       "flow": "hover to reveal a caption",
       "ok": true,
-      "ms": 566
+      "ms": 329
     },
     {
       "flow": "press a key in a field",
       "ok": true,
-      "ms": 1974
+      "ms": 1757
     },
     {
       "flow": "swap two boxes by drag and drop",
       "ok": true,
-      "ms": 2143
+      "ms": 1990
     },
     {
       "flow": "open a link in a new window and switch to it",
       "ok": true,
-      "ms": 1927
+      "ms": 1443
     },
     {
       "flow": "read text from nested frames",
       "ok": true,
-      "ms": 600
+      "ms": 344
     }
   ]
 }
