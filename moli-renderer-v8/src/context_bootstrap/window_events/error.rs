@@ -68,6 +68,7 @@ struct ReportedExceptionDetails {
 
 fn reported_exception_details<'s>(
     scope: &mut v8::PinScope<'s, '_>,
+    host_ptr: *mut JsContextHost,
     reason: v8::Local<'s, v8::Value>,
 ) -> ReportedExceptionDetails {
     // `reportError()` feeds the exception directly into HTML's exception
@@ -93,6 +94,23 @@ fn reported_exception_details<'s>(
         .checked_add(1)
         .and_then(|column| u32::try_from(column).ok())
         .unwrap_or(0);
+    // pilot: a value with no location of its own (a string a module script
+    // threw, the reason its top-level await rejected with) gets a message
+    // with no script, no line and no stack, because no page code is running
+    // when the module script reports it. Blink's CaptureSourceLocation then
+    // uses the execution context's URL, with line and column 0, and so does
+    // Runtime.exceptionThrown. Without this the filename was empty and the
+    // event had no url (moli-core tests *_tla_exotic_rejection_*).
+    let has_location = !filename.is_empty()
+        || lineno != 0
+        || exception_message
+            .get_stack_trace(scope)
+            .is_some_and(|stack_trace| stack_trace.get_frame_count() > 0);
+    let (filename, colno) = if has_location {
+        (filename, colno)
+    } else {
+        (current_realm_document_url(scope, host_ptr), 0)
+    };
     let throw_site = crate::exception_reporting::ExceptionThrowSite::from_message(
         scope,
         Some(exception_message),
@@ -106,6 +124,34 @@ fn reported_exception_details<'s>(
         error: v8::Global::new(scope, reason),
         throw_site,
     }
+}
+
+/// pilot: the URL of the current realm's Document (an iframe's, a popup's or
+/// the page's), which Blink reports for an exception whose message has no
+/// location.
+fn current_realm_document_url(
+    scope: &mut v8::PinScope<'_, '_>,
+    host_ptr: *mut JsContextHost,
+) -> String {
+    let host = unsafe { &*host_ptr };
+    if let Some(handle) =
+        crate::context_bootstrap::child_browsing_context_handle_for_current_realm_scope(scope)
+    {
+        return host
+            .child_browsing_context_current_url(handle)
+            .map(|url| url.to_string())
+            .unwrap_or_default();
+    }
+    if let Some(popup_id) = crate::native_bridge::active_lightweight_popup_id(scope)
+        && let Some(url) = host.lightweight_popup_document_url(popup_id)
+    {
+        return url.to_string();
+    }
+    host.dom_host()
+        .document_url()
+        .cloned()
+        .unwrap_or_else(|| host.document_url().clone())
+        .to_string()
 }
 
 pub(crate) fn dispatch_window_report_error_message<'s>(
@@ -148,7 +194,7 @@ pub(crate) fn report_exception_to_window<'s>(
     host_ptr: *mut JsContextHost,
     exception: v8::Local<'s, v8::Value>,
 ) -> std::result::Result<(), String> {
-    let details = reported_exception_details(scope, exception);
+    let details = reported_exception_details(scope, host_ptr, exception);
     dispatch_window_error_event_from_throw_site(
         scope,
         host_ptr,
@@ -348,7 +394,7 @@ pub(in crate::context_bootstrap) fn window_report_error_callback<'s>(
         return;
     }
 
-    let details = reported_exception_details(scope, args.get(0));
+    let details = reported_exception_details(scope, host_ptr, args.get(0));
     let Some(binding) = receiver.resolve_live_binding(unsafe { &*host_ptr }) else {
         // A discarded Window remains a valid receiver, but there is no live
         // global left on which to report the exception.
