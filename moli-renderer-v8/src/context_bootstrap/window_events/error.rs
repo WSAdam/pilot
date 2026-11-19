@@ -169,6 +169,32 @@ fn current_realm_document_url(
         .to_string()
 }
 
+/// pilot: what HTML's "deliver resize loop error notification" fires at the
+/// window when a ResizeObserver loop leaves notifications for the next
+/// rendering update.
+const RESIZE_OBSERVER_LOOP_ERROR_MESSAGE: &str =
+    "ResizeObserver loop completed with undelivered notifications.";
+
+/// pilot: HTML's "deliver resize loop error notification": an ErrorEvent with
+/// that message at the current realm's window. Chrome gives it the
+/// document's URL, line and column 0 and a null error, so it reaches neither
+/// DevTools nor Playwright's `pageerror`.
+pub(crate) fn dispatch_resize_observer_loop_error<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    host_ptr: *mut JsContextHost,
+) -> std::result::Result<(), String> {
+    let filename = current_realm_document_url(scope, host_ptr);
+    dispatch_window_error_event_with_details(
+        scope,
+        host_ptr,
+        RESIZE_OBSERVER_LOOP_ERROR_MESSAGE,
+        &filename,
+        0,
+        0,
+        None,
+    )
+}
+
 pub(crate) fn dispatch_window_report_error_message<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     host_ptr: *mut JsContextHost,

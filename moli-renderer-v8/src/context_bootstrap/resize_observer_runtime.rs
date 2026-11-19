@@ -232,8 +232,10 @@ pub(super) fn resize_observer_take_records_callback<'s>(
         rv.set(v8::Array::new(scope, 0).into());
         return;
     };
-    let entries = match build_resize_observer_entries(scope, pending_targets) {
-        Ok(entries) => entries,
+    // takeRecords() takes every pending entry; the loop limit applies only
+    // to rounds delivered to the callback.
+    let entries = match build_resize_observer_entries(scope, pending_targets, None) {
+        Ok(round) => round.entries,
         Err(error) => {
             throw_resize_observer_layout_error(scope, error);
             v8::Array::new(scope, 0)
@@ -276,13 +278,16 @@ fn resize_observer_flush_callback<'s>(
         set_resize_observer_pending_targets(scope, observer, pending_targets);
         return;
     };
+    // pilot: a round that continues a loop delivers only targets deeper than
+    // the loop's last round did (HTML's loop limit).
+    let depth_limit = resize_observer_round_depth_limit(scope, observer);
     let callback_context = callback.relevant_context(scope);
     let result = {
         let scope = &mut v8::ContextScope::new(scope, callback_context);
-        build_resize_observer_entries(scope, pending_targets)
+        build_resize_observer_entries(scope, pending_targets, depth_limit)
     };
-    let entries = match result {
-        Ok(entries) => entries,
+    let round = match result {
+        Ok(round) => round,
         Err(error) => {
             let pending_targets = v8::Array::new(scope, 0);
             set_resize_observer_pending_targets(scope, observer, pending_targets);
@@ -290,19 +295,30 @@ fn resize_observer_flush_callback<'s>(
             return;
         }
     };
-    let pending_targets = v8::Array::new(scope, 0);
-    set_resize_observer_pending_targets(scope, observer, pending_targets);
-    if entries.length() == 0 {
+    // Held-back targets stay pending for the next rendering update.
+    let held_back = round.held_back.length() > 0;
+    set_resize_observer_pending_targets(scope, observer, round.held_back);
+    if held_back {
+        hold_resize_observer_notifications_back(scope);
+    }
+    let Some(shallowest_depth) = round.shallowest_depth else {
+        return;
+    };
+    if round.entries.length() == 0 {
         return;
     }
+    note_resize_observer_round(scope, observer, shallowest_depth);
     let observer_value: v8::Local<'_, v8::Value> = observer.into();
+    let was_delivering = resize_observer_global_flag(scope, RESIZE_OBSERVER_DELIVERING_SLOT);
+    set_resize_observer_global_flag(scope, RESIZE_OBSERVER_DELIVERING_SLOT, true);
     callback.invoke_and_report(
         scope,
         "resizeobserver",
         "ResizeObserver callback",
         observer_value,
-        &[entries.into(), observer_value],
+        &[round.entries.into(), observer_value],
     );
+    set_resize_observer_global_flag(scope, RESIZE_OBSERVER_DELIVERING_SLOT, was_delivering);
 }
 
 fn is_resize_observer_target<'s>(
@@ -317,10 +333,19 @@ fn is_resize_observer_target<'s>(
     .is_some()
 }
 
+/// pilot: one round of notifications: the entries to deliver, the observed
+/// records the loop limit held back, and the shallowest depth delivered.
+struct ResizeObserverRound<'s> {
+    entries: v8::Local<'s, v8::Array>,
+    held_back: v8::Local<'s, v8::Array>,
+    shallowest_depth: Option<f64>,
+}
+
 fn build_resize_observer_entries<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     observed_records: v8::Local<'s, v8::Array>,
-) -> Result<v8::Local<'s, v8::Array>, moli_layout::LayoutError> {
+    depth_limit: Option<f64>,
+) -> Result<ResizeObserverRound<'s>, moli_layout::LayoutError> {
     struct PendingEntry<'s> {
         record: Option<v8::Local<'s, v8::Object>>,
         target: v8::Local<'s, v8::Value>,
@@ -350,7 +375,11 @@ fn build_resize_observer_entries<'s>(
     let mut geometry = std::collections::HashMap::new();
     let mut by_document = std::collections::HashMap::<_, Vec<_>>::new();
     let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
-        return Ok(v8::Array::new(scope, 0));
+        return Ok(ResizeObserverRound {
+            entries: v8::Array::new(scope, 0),
+            held_back: v8::Array::new(scope, 0),
+            shallowest_depth: None,
+        });
     };
     let runtime = unsafe { &*host_ptr };
     for handle in pending.iter().filter_map(|entry| entry.handle) {
@@ -401,7 +430,12 @@ fn build_resize_observer_entries<'s>(
     }
 
     let mut entries = Vec::new();
+    let mut held_back = Vec::new();
+    let mut shallowest_depth: Option<f64> = None;
     for entry in pending {
+        let depth = entry
+            .handle
+            .map_or(0.0, |handle| resize_observer_target_depth(runtime, handle));
         let (metrics, dpr) = entry
             .handle
             .and_then(|handle| geometry.get(&handle).copied())
@@ -440,8 +474,16 @@ fn build_resize_observer_entries<'s>(
             if previous == Some(observed_size) {
                 continue;
             }
+            // pilot: a round that continues a loop holds back a target no
+            // deeper than the loop's last round reached, for the next
+            // rendering update (HTML's loop limit).
+            if depth_limit.is_some_and(|limit| depth <= limit) {
+                held_back.push(v8::Local::<v8::Value>::from(record));
+                continue;
+            }
             set_resize_observer_last_reported_size(scope, record, observed_size);
         }
+        shallowest_depth = Some(shallowest_depth.map_or(depth, |shallowest| shallowest.min(depth)));
         let entry = ResizeObserverEntryData {
             target: entry.target,
             content_rect: rect,
@@ -452,7 +494,14 @@ fn build_resize_observer_entries<'s>(
         .into_object(scope);
         entries.push(entry);
     }
-    Ok(serialize_v8_iter_array(scope, entries).unwrap_or_else(|| v8::Array::new(scope, 0)))
+    let entries =
+        serialize_v8_iter_array(scope, entries).unwrap_or_else(|| v8::Array::new(scope, 0));
+    let held_back = v8::Array::new_with_elements(scope, &held_back);
+    Ok(ResizeObserverRound {
+        entries,
+        held_back,
+        shallowest_depth,
+    })
 }
 
 fn build_observed_record<'s>(
@@ -494,6 +543,237 @@ fn observed_record_box<'s>(
         "content-box" => Some(ResizeObserverBoxOptions::ContentBox),
         _ => None,
     }
+}
+
+// pilot: HTML's ResizeObserver loop limit. HTML delivers notifications in the
+// rendering update: after a round, only targets deeper than the shallowest
+// one delivered are delivered again; the rest wait for the next rendering
+// update, and the window gets "ResizeObserver loop completed with undelivered
+// notifications." pilot delivers a round as a microtask once something
+// changes, so a callback that resized a box it observes queued the next
+// round in the same microtask checkpoint, forever (Build 11's open-web sweep
+// lost the browser on IMDb). A round queued while a ResizeObserver callback
+// runs continues that loop; the loop's state lasts until the event loop
+// turns.
+/// Global: the shallowest target depth the loop's last round delivered.
+const RESIZE_OBSERVER_LOOP_DEPTH_SLOT: &str = "__moliResizeObserverLoopDepth";
+/// Global: a ResizeObserver callback is running.
+const RESIZE_OBSERVER_DELIVERING_SLOT: &str = "__moliResizeObserverDelivering";
+/// Global: how many times the event loop has turned since a round was
+/// delivered, counted by the task below.
+const RESIZE_OBSERVER_TURN_SLOT: &str = "__moliResizeObserverTurn";
+/// Global: the task that marks the event loop's next turn is queued.
+const RESIZE_OBSERVER_TURN_QUEUED_SLOT: &str = "__moliResizeObserverTurnQueued";
+/// Global: the current loop already fired its loop error.
+const RESIZE_OBSERVER_LOOP_ERROR_FIRED_SLOT: &str = "__moliResizeObserverLoopErrorFired";
+/// Global: held-back notifications are queued for the next rendering update.
+const RESIZE_OBSERVER_NEXT_FRAME_QUEUED_SLOT: &str = "__moliResizeObserverNextFrameQueued";
+/// Observer: its round was queued while a callback ran, so it continues a
+/// loop.
+const RESIZE_OBSERVER_LOOP_ROUND_SLOT: &str = "__moliResizeObserverLoopRound";
+/// Observer: rounds it delivered in the turn below.
+const RESIZE_OBSERVER_ROUNDS_SLOT: &str = "__moliResizeObserverRounds";
+/// Observer: the turn its round count belongs to.
+const RESIZE_OBSERVER_ROUNDS_TURN_SLOT: &str = "__moliResizeObserverRoundsTurn";
+/// Rounds one observer may deliver before the event loop turns, without its
+/// callback changing anything directly (a callback that resizes through a
+/// promise reaction), before they count as one loop.
+const RESIZE_OBSERVER_ROUNDS_BEFORE_LOOP: f64 = 32.0;
+
+fn private_flag<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    slot: &str,
+) -> bool {
+    get_private_value(scope, object, slot).is_some_and(|value| value.is_true())
+}
+
+fn set_private_flag(
+    scope: &mut v8::PinScope<'_, '_>,
+    object: v8::Local<'_, v8::Object>,
+    slot: &str,
+    value: bool,
+) {
+    let value = v8::Boolean::new(scope, value);
+    set_private_value(scope, object, slot, value.into());
+}
+
+fn private_number<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    slot: &str,
+) -> Option<f64> {
+    get_private_value(scope, object, slot)
+        .filter(|value| value.is_number())
+        .and_then(|value| value.number_value(scope))
+}
+
+fn set_private_number(
+    scope: &mut v8::PinScope<'_, '_>,
+    object: v8::Local<'_, v8::Object>,
+    slot: &str,
+    value: Option<f64>,
+) {
+    let value = match value {
+        Some(value) => v8::Number::new(scope, value).into(),
+        None => v8::undefined(scope).into(),
+    };
+    set_private_value(scope, object, slot, value);
+}
+
+fn resize_observer_global_flag(scope: &mut v8::PinScope<'_, '_>, slot: &str) -> bool {
+    let global = scope.get_current_context().global(scope);
+    private_flag(scope, global, slot)
+}
+
+fn set_resize_observer_global_flag(scope: &mut v8::PinScope<'_, '_>, slot: &str, value: bool) {
+    let global = scope.get_current_context().global(scope);
+    set_private_flag(scope, global, slot, value);
+}
+
+/// Rounds `observer` delivered since the event loop last turned.
+fn resize_observer_rounds_this_turn<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    observer: v8::Local<'s, v8::Object>,
+) -> f64 {
+    let global = scope.get_current_context().global(scope);
+    let turn = private_number(scope, global, RESIZE_OBSERVER_TURN_SLOT).unwrap_or(0.0);
+    if private_number(scope, observer, RESIZE_OBSERVER_ROUNDS_TURN_SLOT) != Some(turn) {
+        return 0.0;
+    }
+    private_number(scope, observer, RESIZE_OBSERVER_ROUNDS_SLOT).unwrap_or(0.0)
+}
+
+/// The depth `observer`'s round must go below when it continues a loop, or
+/// `None` for a round of a new rendering update.
+fn resize_observer_round_depth_limit<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    observer: v8::Local<'s, v8::Object>,
+) -> Option<f64> {
+    let loop_round = private_flag(scope, observer, RESIZE_OBSERVER_LOOP_ROUND_SLOT);
+    set_private_flag(scope, observer, RESIZE_OBSERVER_LOOP_ROUND_SLOT, false);
+    let continues_loop = loop_round
+        || resize_observer_rounds_this_turn(scope, observer) >= RESIZE_OBSERVER_ROUNDS_BEFORE_LOOP;
+    if !continues_loop {
+        return None;
+    }
+    let global = scope.get_current_context().global(scope);
+    private_number(scope, global, RESIZE_OBSERVER_LOOP_DEPTH_SLOT)
+}
+
+/// Records a round `observer` delivered, and queues the task that ends the
+/// loop once the event loop turns.
+fn note_resize_observer_round<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    observer: v8::Local<'s, v8::Object>,
+    shallowest_depth: f64,
+) {
+    let global = scope.get_current_context().global(scope);
+    set_private_number(
+        scope,
+        global,
+        RESIZE_OBSERVER_LOOP_DEPTH_SLOT,
+        Some(shallowest_depth),
+    );
+    let rounds = resize_observer_rounds_this_turn(scope, observer);
+    let turn = private_number(scope, global, RESIZE_OBSERVER_TURN_SLOT).unwrap_or(0.0);
+    set_private_number(
+        scope,
+        observer,
+        RESIZE_OBSERVER_ROUNDS_TURN_SLOT,
+        Some(turn),
+    );
+    set_private_number(
+        scope,
+        observer,
+        RESIZE_OBSERVER_ROUNDS_SLOT,
+        Some(rounds + 1.0),
+    );
+    if private_flag(scope, global, RESIZE_OBSERVER_TURN_QUEUED_SLOT) {
+        return;
+    }
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return;
+    };
+    let Some(callback) =
+        v8::Function::builder(resize_observer_event_loop_turned_callback).build(scope)
+    else {
+        return;
+    };
+    if unsafe { &mut *host_ptr }.queue_internal_task(scope, callback) {
+        set_private_flag(scope, global, RESIZE_OBSERVER_TURN_QUEUED_SLOT, true);
+    }
+}
+
+/// Ends the current loop: the next round starts a new rendering update.
+fn end_resize_observer_loop(scope: &mut v8::PinScope<'_, '_>) {
+    let global = scope.get_current_context().global(scope);
+    let turn = private_number(scope, global, RESIZE_OBSERVER_TURN_SLOT).unwrap_or(0.0);
+    set_private_number(scope, global, RESIZE_OBSERVER_TURN_SLOT, Some(turn + 1.0));
+    set_private_number(scope, global, RESIZE_OBSERVER_LOOP_DEPTH_SLOT, None);
+    set_private_flag(scope, global, RESIZE_OBSERVER_LOOP_ERROR_FIRED_SLOT, false);
+}
+
+/// The event loop turned.
+fn resize_observer_event_loop_turned_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    _args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    set_resize_observer_global_flag(scope, RESIZE_OBSERVER_TURN_QUEUED_SLOT, false);
+    end_resize_observer_loop(scope);
+}
+
+/// A round held notifications back: the window gets the loop error once per
+/// loop, and the held-back targets are checked again at the next rendering
+/// update.
+fn hold_resize_observer_notifications_back(scope: &mut v8::PinScope<'_, '_>) {
+    let Some(host_ptr) = context_host_ptr_from_global_bridge(scope) else {
+        return;
+    };
+    if !resize_observer_global_flag(scope, RESIZE_OBSERVER_LOOP_ERROR_FIRED_SLOT) {
+        set_resize_observer_global_flag(scope, RESIZE_OBSERVER_LOOP_ERROR_FIRED_SLOT, true);
+        let _ = dispatch_resize_observer_loop_error(scope, host_ptr);
+    }
+    if resize_observer_global_flag(scope, RESIZE_OBSERVER_NEXT_FRAME_QUEUED_SLOT) {
+        return;
+    }
+    let Some(callback) =
+        v8::Function::builder(resize_observer_next_rendering_update_callback).build(scope)
+    else {
+        return;
+    };
+    let delay_ms = crate::window_host::delay_to_next_animation_frame_ms(scope);
+    if unsafe { &mut *host_ptr }.queue_internal_task_after(scope, callback, delay_ms) {
+        set_resize_observer_global_flag(scope, RESIZE_OBSERVER_NEXT_FRAME_QUEUED_SLOT, true);
+    }
+}
+
+/// The next rendering update: held-back notifications are delivered in a new
+/// loop.
+fn resize_observer_next_rendering_update_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    _args: v8::FunctionCallbackArguments<'s>,
+    _rv: v8::ReturnValue<'_, v8::Value>,
+) {
+    set_resize_observer_global_flag(scope, RESIZE_OBSERVER_NEXT_FRAME_QUEUED_SLOT, false);
+    end_resize_observer_loop(scope);
+    queue_resize_observer_checks(scope);
+}
+
+/// The target's depth in the flat tree: how many ancestors it has there, as
+/// HTML counts it for the loop limit.
+fn resize_observer_target_depth(
+    runtime: &JsContextHost,
+    handle: crate::document_runtime::DomHandle,
+) -> f64 {
+    let mut depth = 0.0;
+    let mut current = handle;
+    while let Some(parent) = runtime.dom_host().flat_tree_parent(current) {
+        depth += 1.0;
+        current = parent;
+    }
+    depth
 }
 
 fn resize_observer_last_reported_size<'s>(
@@ -702,6 +982,11 @@ fn queue_resize_observer_delivery<'s>(
         let pending_targets = v8::Array::new(scope, 0);
         set_resize_observer_pending_targets(scope, observer, pending_targets);
         return;
+    }
+    // pilot: a round queued while a ResizeObserver callback runs continues
+    // that callback's loop, so HTML's loop limit applies to it.
+    if resize_observer_global_flag(scope, RESIZE_OBSERVER_DELIVERING_SLOT) {
+        set_private_flag(scope, observer, RESIZE_OBSERVER_LOOP_ROUND_SLOT, true);
     }
     set_resize_observer_scheduled(scope, observer, true);
     push_object_to_global_queue(scope, RESIZE_OBSERVER_QUEUE_SLOT, observer);

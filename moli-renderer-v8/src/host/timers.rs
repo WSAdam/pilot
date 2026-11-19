@@ -279,6 +279,17 @@ impl HostTimeoutScheduler {
         scope: &mut v8::PinScope<'s, '_>,
         callback: v8::Local<'s, v8::Function>,
     ) -> bool {
+        self.queue_internal_task_after(scope, callback, 0)
+    }
+
+    /// pilot: a browser task that runs once `delay_ms` have passed, such as
+    /// ResizeObserver notifications held back to the next rendering update.
+    pub(crate) fn queue_internal_task_after<'s>(
+        &mut self,
+        scope: &mut v8::PinScope<'s, '_>,
+        callback: v8::Local<'s, v8::Function>,
+        delay_ms: u64,
+    ) -> bool {
         let receiver = scope.get_current_context().global(scope);
         let Some(callback) = scheduled_timer_function(scope, callback, receiver) else {
             return false;
@@ -298,7 +309,7 @@ impl HostTimeoutScheduler {
                 is_interval: false,
                 extra_args: Vec::new(),
             },
-            0,
+            delay_ms,
             Instant::now(),
         );
         true

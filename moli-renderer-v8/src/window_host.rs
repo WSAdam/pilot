@@ -2105,6 +2105,17 @@ fn requested_animation_frame_time_ms(now: f64, last_frame: Option<f64>, interval
     }
 }
 
+/// pilot: the whole milliseconds, at least 1, until the next boundary of the
+/// current realm's animation frame grid: when the next rendering update
+/// runs, for work HTML leaves to it (ResizeObserver notifications a loop held
+/// back).
+pub(crate) fn delay_to_next_animation_frame_ms(scope: &mut v8::PinScope<'_, '_>) -> u64 {
+    let now = current_animation_frame_time_ms(scope);
+    let interval = crate::animation_frame_rate::animation_frame_interval_ms();
+    let next_frame = current_animation_frame_start_ms(now, interval) + interval;
+    ((next_frame - now).ceil() as u64).max(1)
+}
+
 fn current_animation_frame_time_ms(scope: &mut v8::PinScope<'_, '_>) -> f64 {
     let global = scope.get_current_context().global(scope);
     global
