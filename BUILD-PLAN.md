@@ -283,7 +283,7 @@ Each item has a conformance test, green on Chromium headless shell 1223 and red 
 
 ## Needs you, not a build
 - **Chrome comparison** on the bot-wall sites from this IP. It runs Chromium with `--use-mock-keychain --password-store=basic`, so there's no Keychain prompt. It needs your OK.
-- **Your sprig and Fresh apps** for the v1 suite: I need their paths.
+- **Your sprig and Fresh apps** for the v1 suite: replaced on 2026-11-19, at your call, by a live public site (the-internet.herokuapp.com, `compat/live-site.json`). pilot passes all 16 flows.
 - **Linux headless check:** needs Docker running. A build inside Docker is heavy and uses the Docker VM's memory.
 - **Deno `chromium.launch` hang**, plus a Deno helper module. Light or no build.
 - **4 macOS-only test failures:** test-side fixes, low priority.

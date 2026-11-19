@@ -1,0 +1,89 @@
+{
+  "date": "2026-11-19",
+  "site": "https://the-internet.herokuapp.com",
+  "pilot": "/Users/adam/Programming/Custom-browser/target/release/pilot",
+  "passed": 16,
+  "total": 16,
+  "results": [
+    {
+      "flow": "log in and out (form authentication)",
+      "ok": true,
+      "ms": 3467
+    },
+    {
+      "flow": "a wrong password is refused",
+      "ok": true,
+      "ms": 2035
+    },
+    {
+      "flow": "check and uncheck checkboxes",
+      "ok": true,
+      "ms": 2356
+    },
+    {
+      "flow": "pick from a dropdown",
+      "ok": true,
+      "ms": 1807
+    },
+    {
+      "flow": "accept a JavaScript alert",
+      "ok": true,
+      "ms": 1373
+    },
+    {
+      "flow": "dismiss a confirm",
+      "ok": true,
+      "ms": 1438
+    },
+    {
+      "flow": "answer a prompt",
+      "ok": true,
+      "ms": 1829
+    },
+    {
+      "flow": "wait for content loaded after a delay",
+      "ok": true,
+      "ms": 6425
+    },
+    {
+      "flow": "enable a disabled input and type in it",
+      "ok": true,
+      "ms": 4962
+    },
+    {
+      "flow": "add and remove elements",
+      "ok": true,
+      "ms": 3085
+    },
+    {
+      "flow": "upload a file",
+      "ok": true,
+      "ms": 3398
+    },
+    {
+      "flow": "hover to reveal a caption",
+      "ok": true,
+      "ms": 566
+    },
+    {
+      "flow": "press a key in a field",
+      "ok": true,
+      "ms": 1974
+    },
+    {
+      "flow": "swap two boxes by drag and drop",
+      "ok": true,
+      "ms": 2143
+    },
+    {
+      "flow": "open a link in a new window and switch to it",
+      "ok": true,
+      "ms": 1927
+    },
+    {
+      "flow": "read text from nested frames",
+      "ok": true,
+      "ms": 600
+    }
+  ]
+}
