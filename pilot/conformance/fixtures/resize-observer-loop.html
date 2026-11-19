@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<title>ResizeObserver loop</title>
+<div id="box" style="width: 100px; height: 10px"></div>
+<script>
+  // The observer's callback resizes the very box it observes, so a new
+  // notification is always pending. HTML delivers ResizeObserver
+  // notifications in the rendering update, only for deeper targets once a
+  // round has run, and reports the rest as a loop error, so the page keeps
+  // running (IMDb's challenge page does this in Build 11's open-web sweep).
+  window.deliveries = 0;
+  window.frames = 0;
+  window.loopErrors = [];
+  addEventListener('error', (event) => {
+    loopErrors.push({
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error,
+    });
+  });
+  const countFrame = () => {
+    frames += 1;
+    requestAnimationFrame(countFrame);
+  };
+  requestAnimationFrame(countFrame);
+  const box = document.getElementById('box');
+  new ResizeObserver(() => {
+    deliveries += 1;
+    box.style.width = `${box.offsetWidth === 100 ? 200 : 100}px`;
+  }).observe(box);
+</script>
