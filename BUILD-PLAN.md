@@ -29,10 +29,17 @@ Every remaining piece of work, grouped by the build it needs. Written 2026-11-09
 - **ready** means every fix in the batch is written, and its conformance tests are red against `target/release/pilot`.
 - **Run:**
   1. Run `cargo fmt --all` locally. It only reformats files and compiles nothing.
-  2. Commit each unit on a `gate/<label>` branch, then push the branch. The push starts `pilot-gate.yml`.
-  3. **Linux job** (16 GB runner): `cargo fmt --check`, clippy `-D warnings`, nextest on the whole workspace, the release build with 16 codegen units, and the CDP smoke.
-  4. **macOS job** (macos-15): the same release build, then the conformance suite against it. It uploads `pilot` and `moli` as the `pilot-macos-aarch64` artifact.
-  5. A background `gh run watch` reports back when both jobs finish. It uses no real memory.
+  2. **Pre-check (since Build 12).** Push the branch to `precheck/<label>`. That starts `pilot-precheck.yml`, which runs the gate's Linux checks (fmt, clippy `-D warnings`, nextest on the whole workspace, the fetch CLI tests) in about 45 minutes. Each check records its result instead of failing the run, so a red check sends no email. The log's `PRECHECK RESULT:` line says CLEAN or lists what failed. Fix what it lists and push again, until it's clean.
+     - **Why:** between 2026-11-17 and 11-18, 4 of 8 red gate runs were existing tests that still expected behaviour the build changed on purpose. Each one cost a 1–2 hour run and a failure email.
+     - **Before every push**, pre-check or gate:
+       - check the renderer's source-boundary counts with a script (no compile);
+       - check every struct literal of a struct that gained a field;
+       - grep the tests for each value the build changes;
+       - on a red, fix every assertion in the failing test and its siblings, not only the one reported.
+  3. Commit each unit on a `gate/<label>` branch, then push the branch. The push starts `pilot-gate.yml`. It still fails on anything, including what the pre-check can't see: the release build, CDP smoke and macOS conformance.
+  4. **Linux job** (16 GB runner): `cargo fmt --check`, clippy `-D warnings`, nextest on the whole workspace, the release build with 16 codegen units, and the CDP smoke.
+  5. **macOS job** (macos-15): the same release build, then the conformance suite against it. It uploads `pilot` and `moli` as the `pilot-macos-aarch64` artifact.
+  6. A background `gh run watch` reports back when both jobs finish. It uses no real memory.
 - **Both green:**
   - the macOS binaries are downloaded into `target/release/`;
   - the MCP sweep, plus open-web when the batch needs it, runs locally against them (pilot uses about 200 MB);

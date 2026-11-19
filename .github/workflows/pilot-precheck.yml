@@ -1,0 +1,119 @@
+name: pilot pre-check
+
+# The gate's Linux checks, run on a precheck/<label> branch before that build
+# goes to gate/<label>. Nothing compiles on the developer's Mac, so this is
+# where a build first meets the test suite. Each check records its result
+# instead of failing the run: a red check sends no failure email. The Report
+# step writes one line, "PRECHECK RESULT: CLEAN" or "PRECHECK RESULT: RED"
+# with the checks that failed, to the log and the run summary. A build goes to
+# the gate only once its pre-check is clean, and the gate (pilot-gate.yml)
+# stays the only run that lands a build. It still fails on anything, including
+# what this can't see: the release build, CDP smoke and macOS conformance.
+on:
+  push:
+    branches: ["precheck/**"]
+
+concurrency:
+  group: pilot-precheck-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  TZ: UTC
+
+jobs:
+  linux:
+    name: Linux - fmt, clippy, nextest (reports, never fails)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      # Same runner and parallelism as the gate's Linux job.
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Free disk and add swap
+        run: |
+          set -euo pipefail
+          echo "🔍 before"; df -h /; free -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          if mountpoint -q /mnt; then swapfile=/mnt/pilot-swap; else swapfile=/pilot-swap; fi
+          sudo fallocate -l 8G "$swapfile"
+          sudo chmod 600 "$swapfile"
+          sudo mkswap "$swapfile" >/dev/null
+          sudo swapon "$swapfile"
+          echo "✅ after"; df -h /; free -h
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends cmake libclang-dev time pkg-config \
+            libfontconfig1-dev libfreetype-dev libsqlite3-dev zlib1g-dev libssl-dev \
+            libwayland-dev libxkbcommon-dev libdrm-dev
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          toolchain=$(tr -d '[:space:]' < rust-toolchain)
+          rustup toolchain install "$toolchain" --profile minimal --component rustfmt,clippy --no-self-update
+          rustc --version
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
+        with:
+          tool: nextest@0.9.132
+
+      # The four checks below are the gate's own commands. continue-on-error
+      # keeps the job green while each step's outcome still says what happened.
+      - name: fmt
+        id: fmt
+        continue-on-error: true
+        run: cargo fmt --all --check
+
+      - name: clippy
+        id: clippy
+        continue-on-error: true
+        run: /usr/bin/time -v cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: nextest
+        id: nextest
+        continue-on-error: true
+        # The whole workspace, as the gate builds it: a narrower build unifies
+        # features differently and missed Build 8's stack overflow.
+        run: /usr/bin/time -v cargo nextest run --workspace --profile ci -E 'not binary(fetch_cli)'
+
+      - name: nextest (moli fetch CLI, one test at a time)
+        id: fetch_cli
+        continue-on-error: true
+        run: cargo nextest run --workspace --profile ci -E 'binary(fetch_cli)' --test-threads 1
+
+      - name: Report
+        if: always()
+        env:
+          FMT: ${{ steps.fmt.outcome }}
+          CLIPPY: ${{ steps.clippy.outcome }}
+          NEXTEST: ${{ steps.nextest.outcome }}
+          FETCH_CLI: ${{ steps.fetch_cli.outcome }}
+        run: |
+          set -uo pipefail
+          red=""
+          for check in "fmt=$FMT" "clippy=$CLIPPY" "nextest=$NEXTEST" "fetch_cli=$FETCH_CLI"; do
+            [ "${check#*=}" = "success" ] || red="$red ${check}"
+          done
+          if [ -z "$red" ]; then
+            line="✅ PRECHECK RESULT: CLEAN (fmt, clippy, nextest, fetch CLI all passed)"
+          else
+            line="❌ PRECHECK RESULT: RED:$red"
+          fi
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
