@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<title>Module values without a location</title>
+<script>
+  // A module script that throws a string, and one whose top-level await
+  // rejects with a null-prototype object. Neither value has a location of its
+  // own, so Chrome reports them at the document's URL, line and column 0.
+  window.errorEvents = [];
+  addEventListener('error', (event) => {
+    errorEvents.push({
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+      error: event.error === null ? 'null' : typeof event.error,
+    });
+  });
+</script>
+<script type="module">throw 'a module string';</script>
+<script type="module">await Promise.reject(Object.create(null));</script>
